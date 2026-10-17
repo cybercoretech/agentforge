@@ -199,7 +199,7 @@ run `36098172256` on `46d8480` (publish preparation green, upload skipped); `360
 CI result: green on all seven jobs on `991eb60` and `84df7f9`
 Completed: 2026-09-24
 Notes:
-- `v0.2.0` is published at https://github.com/cybercore-tech/agentforge/releases/tag/v0.2.0 and
+- `v0.2.0` is published at https://github.com/cybercoretech/agentforge/releases/tag/v0.2.0 and
   marked Latest. It has four archives, their `.sha256` files, and a bare `SHA256SUMS`; a fresh full
   download passes plain `sha256sum -c SHA256SUMS`; the binaries report `0.2.0`. The release notes
   are the CHANGELOG `[0.2.0]` section, install steps, and provenance.

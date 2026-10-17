@@ -162,7 +162,7 @@ Notes:
 - **Published by the workflow**, a first for a real tag (P5-M001 and P5-M002 both needed the
   recovery procedure). The tag run logged "Attestation created for 4 subjects" and "verified 9
   assets of v0.3.0 (names, bytes, SHA256SUMS, 4 attestations)".
-  https://github.com/cybercore-tech/agentforge/releases/tag/v0.3.0 is marked Latest.
+  https://github.com/cybercoretech/agentforge/releases/tag/v0.3.0 is marked Latest.
 - **Checked independently from this machine:** a fresh full download passes plain
   `sha256sum -c SHA256SUMS`. All four archives pass `gh attestation verify --signer-workflow
   .../release.yml --source-ref refs/tags/v0.3.0` (source `c50ed73`, trigger `push`). The Linux

@@ -142,7 +142,7 @@ Completed: 2026-09-25
 Notes:
 - **Published by the workflow:** "verified 10 assets of v0.3.1 (names, bytes, SHA256SUMS, 4
   attestations, 4 SBOM attestations)". Attestations 50351744 (provenance) and 50351746 (SBOM).
-  https://github.com/cybercore-tech/agentforge/releases/tag/v0.3.1 is marked Latest.
+  https://github.com/cybercoretech/agentforge/releases/tag/v0.3.1 is marked Latest.
 - **Checked independently from this machine:** a fresh full download passes `sha256sum -c
   SHA256SUMS` (five files, including the SBOM). All four archives pass provenance verification
   (`--source-ref refs/tags/v0.3.1`) and SBOM verification (`--predicate-type

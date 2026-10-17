@@ -8,19 +8,19 @@ the repository: plans, task contracts, permissions, isolated worktrees, quality-
 CI observations, audit records, and human decisions. 🧭
 
 > **Status:** `0.3.1-alpha` · latest release
-> ([v0.3.1](https://github.com/cybercore-tech/agentforge/releases/tag/v0.3.1), attested builds and SBOM) · alpha: evolving
+> ([v0.3.1](https://github.com/cybercoretech/agentforge/releases/tag/v0.3.1), attested builds and SBOM) · alpha: evolving
 > APIs, local-first, not for unattended production use
 >
-> **Canonical repository:** [`cybercore-tech/agentforge`](https://github.com/cybercore-tech/agentforge).
+> **Canonical repository:** [`cybercore-tech/agentforge`](https://github.com/cybercoretech/agentforge).
 > Its earlier history (up to `976c4f9`) came over from the old `darkstardevx/agentforge` copy,
 > which is now retired.
 
-[![CI](https://github.com/cybercore-tech/agentforge/actions/workflows/ci.yml/badge.svg)](https://github.com/cybercore-tech/agentforge/actions/workflows/ci.yml)
+[![CI](https://github.com/cybercoretech/agentforge/actions/workflows/ci.yml/badge.svg)](https://github.com/cybercoretech/agentforge/actions/workflows/ci.yml)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](https://www.rust-lang.org/)
-[![Project site](https://img.shields.io/badge/project%20site-AgentForge-08111f?logo=github)](https://cybercore-tech.github.io/agentforge/)
+[![Project site](https://img.shields.io/badge/project%20site-AgentForge-08111f?logo=github)](https://cybercoretech.github.io/agentforge/)
 
-**[Visit the AgentForge project site →](https://cybercore-tech.github.io/agentforge/)**. Its
-[What's new](https://cybercore-tech.github.io/agentforge/#updates) section shows recently shipped
+**[Visit the AgentForge project site →](https://cybercoretech.github.io/agentforge/)**. Its
+[What's new](https://cybercoretech.github.io/agentforge/#updates) section shows recently shipped
 milestones, work in progress, phase progress, and upcoming release notes, generated from this
 repository's own records.
 
@@ -156,7 +156,7 @@ stable release contract. 🧪
 Build and verify the workspace:
 
 ```bash
-git clone https://github.com/cybercore-tech/agentforge.git
+git clone https://github.com/cybercoretech/agentforge.git
 cd agentforge
 cargo build --workspace --locked
 cargo test --workspace --locked
@@ -589,7 +589,7 @@ paths and restored reliable CI:
 - **P3-M006** external MCP servers behind the gateway: declared, capability-mapped, and audited,
   with unmapped tools invisible;
 - **P5-M007** release
-  [`v0.3.1`](https://github.com/cybercore-tech/agentforge/releases/tag/v0.3.1): the first with an
+  [`v0.3.1`](https://github.com/cybercoretech/agentforge/releases/tag/v0.3.1): the first with an
   attested SBOM, and the remote-worker fixes from the two-host rehearsal;
 - **P2-M035** agent task hygiene: tasks that could never be integrated are refused at creation, and
   agents can run the scripts in their own allowed paths;
@@ -600,7 +600,7 @@ paths and restored reliable CI:
 - **P4-M011** worker-host setup in two commands (`scripts/worker-bundle`, then
   `scripts/worker-host-setup`), rehearsed through real GhostPort;
 - **P5-M005** release
-  [`v0.3.0`](https://github.com/cybercore-tech/agentforge/releases/tag/v0.3.0), the first with
+  [`v0.3.0`](https://github.com/cybercoretech/agentforge/releases/tag/v0.3.0), the first with
   attested archives: remote-worker supervision, the MCP gateway, and the daemon sweep fix;
 - **P5-M004** keyless release provenance: every archive is attested by the release workflow and
   verifiable with `gh attestation verify`;
@@ -612,10 +612,10 @@ paths and restored reliable CI:
 - **P4-M009** a worker-host doctor: `forge worker remote run` refuses to start on a misconfigured
   host;
 - **P5-M002** release
-  [`v0.2.0`](https://github.com/cybercore-tech/agentforge/releases/tag/v0.2.0): remote workers and
+  [`v0.2.0`](https://github.com/cybercoretech/agentforge/releases/tag/v0.2.0): remote workers and
   the audit-corruption fix;
 - **P5-M001** the first tagged release,
-  [`v0.1.0`](https://github.com/cybercore-tech/agentforge/releases/tag/v0.1.0), with checksummed
+  [`v0.1.0`](https://github.com/cybercoretech/agentforge/releases/tag/v0.1.0), with checksummed
   archives for Linux, macOS, and Windows.
 
 Candidate next milestones, each still requiring its own approved plan:

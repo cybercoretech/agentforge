@@ -161,7 +161,7 @@ CI result: green on all seven jobs in all four runs; the rehearsal is green on a
 Completed: 2026-09-25
 Notes:
 - **Rehearsal `36145288186`:** "Attestation created for 4 subjects"
-  (https://github.com/cybercore-tech/agentforge/attestations/50194895), then "verified 9 assets of
+  (https://github.com/cybercoretech/agentforge/attestations/50194895), then "verified 9 assets of
   rehearsal-36145288186-1 (names, bytes, SHA256SUMS, 4 attestations)" on the downloaded draft
   assets, then the draft was deleted. Afterwards there was no draft and no `rehearsal-*` tag, and
   `v0.2.0` is still Latest.

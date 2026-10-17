@@ -186,7 +186,7 @@ Packaging dry runs: `36012653332` (`b1f1cab`) and `36013843718` (`0eb777b`). Tag
 CI result: green on all seven jobs in every CI run, and all four targets built in every release run.
 The tag run's publish job failed on a workflow defect (Amendment 3).
 Completed: 2026-09-24
-Notes: `v0.1.0` is published at https://github.com/cybercore-tech/agentforge/releases/tag/v0.1.0.
+Notes: `v0.1.0` is published at https://github.com/cybercoretech/agentforge/releases/tag/v0.1.0.
 It has four `.tar.gz` archives (Linux x86_64, macOS x86_64 and aarch64, Windows x86_64), each with
 a `.sha256` file, plus a consolidated `SHA256SUMS`. The assets are the tag run's own CI-built
 artifacts, published with the workflow's command plus `--repo`. The release notes are the

@@ -8,8 +8,8 @@ Owner: AgentForge project
 ## Goal
 
 Make every repository-owned link, metadata field, and public page point at the new canonical home,
-`https://github.com/cybercore-tech/agentforge`, with the project site at
-`https://cybercore-tech.github.io/agentforge/`. Bring the README current with the work completed
+`https://github.com/cybercoretech/agentforge`, with the project site at
+`https://cybercoretech.github.io/agentforge/`. Bring the README current with the work completed
 since P2-M019 (gates, CI observation, batch launch, daemon fixes, remote-worker foundations).
 
 ## Non-goals
@@ -141,7 +141,7 @@ Notes:
 Repository metadata, README, CHANGELOG, `docs/REGISTRY.md`, and the Pages site now name
 `cybercore-tech/agentforge`. Only two intentional notes mention the historical `darkstardevx`
 location. `cargo metadata` reports the new repository and homepage. The live site at
-`https://cybercore-tech.github.io/agentforge/` serves seven links to the new repository in
+`https://cybercoretech.github.io/agentforge/` serves seven links to the new repository in
 `index.html` and the new README URL in `script.js`. README "What works today", roadmap, and docs map
 now cover P1-M004 to P2-M025, and CHANGELOG Unreleased covers the same span. Amendment 1 repaired
 the package preflight regression introduced by P1-M004 and P1-M005 (missing `agentforge-ci` and

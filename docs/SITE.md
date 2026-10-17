@@ -1,6 +1,6 @@
 # Project site
 
-The public site at <https://cybercore-tech.github.io/agentforge/> is static HTML, CSS, and vanilla
+The public site at <https://cybercoretech.github.io/agentforge/> is static HTML, CSS, and vanilla
 JavaScript in `site/`, deployed by `.github/workflows/pages.yml`. It uses no third-party scripts,
 fonts, or build toolchain.
 

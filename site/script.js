@@ -15,7 +15,7 @@
   trigger.addEventListener("click", () => {
     lastFocused = document.activeElement;
     if (typeof dialog.showModal !== "function") {
-      window.location.href = "https://github.com/cybercore-tech/agentforge/blob/main/README.md";
+      window.location.href = "https://github.com/cybercoretech/agentforge/blob/main/README.md";
       return;
     }
     dialog.showModal();
@@ -33,7 +33,7 @@
 })();
 
 (() => {
-  const REPO = "https://github.com/cybercore-tech/agentforge";
+  const REPO = "https://github.com/cybercoretech/agentforge";
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const grid = document.getElementById("updates-grid");
   const summary = document.getElementById("updates-summary");
@@ -123,7 +123,7 @@
       const { version, date } = feed.latest_release;
       const note = element("p", "unreleased-empty", `Nothing unreleased since `);
       const link = element("a", "", `v${version}`);
-      link.href = `https://github.com/cybercore-tech/agentforge/releases/tag/v${version}`;
+      link.href = `https://github.com/cybercoretech/agentforge/releases/tag/v${version}`;
       note.append(link, document.createTextNode(` (${date}).`));
       unreleased.append(note);
     }

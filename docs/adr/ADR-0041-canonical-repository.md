@@ -14,8 +14,8 @@ named `darkstardevx`.
 
 ## Decision
 
-- `https://github.com/cybercore-tech/agentforge` is the canonical repository, and
-  `https://cybercore-tech.github.io/agentforge/` is the project site.
+- `https://github.com/cybercoretech/agentforge` is the canonical repository, and
+  `https://cybercoretech.github.io/agentforge/` is the project site.
 - Repository-owned metadata (workspace `Cargo.toml`), README, CHANGELOG, registry documentation,
   and the Pages site point at the canonical locations.
 - `darkstardevx/agentforge` is the historical location. It is not updated and is not configured as

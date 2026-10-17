@@ -19,7 +19,7 @@
 
 [Unit]
 Description=AgentForge remote worker %i
-Documentation=https://github.com/cybercore-tech/agentforge/blob/main/docs/REMOTE_WORKERS.md
+Documentation=https://github.com/cybercoretech/agentforge/blob/main/docs/REMOTE_WORKERS.md
 After=network-online.target
 Wants=network-online.target
 

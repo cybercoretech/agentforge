@@ -73,7 +73,7 @@ No active milestone. P3-M006 — external MCP servers behind the gateway — is 
 - Approved plan: `.plans/P5-M005-release-v0-3-0.plan.md` (one amendment).
 - `v0.3.0` was tagged on `c50ed73` (CI `36150323445` and `36150697705`, rehearsal `36150342540`).
   Tag run `36151042612` published it and verified its own assets and 4 attestations.
-- https://github.com/cybercore-tech/agentforge/releases/tag/v0.3.0 verified from this machine:
+- https://github.com/cybercoretech/agentforge/releases/tag/v0.3.0 verified from this machine:
   `sha256sum -c` OK, `gh attestation verify --source-ref refs/tags/v0.3.0` OK for all four
   archives, and the binaries report `0.3.0`.
 
@@ -146,7 +146,7 @@ No active milestone. P3-M006 — external MCP servers behind the gateway — is 
   failed on staging directories, so the release was published from that run's artifacts. The
   workflow was fixed in `46d8480` (dry run `36098172256`), and the test flake in `84df7f9` (CI
   `36098488170`, `36098648215`, and `36098655755`).
-- https://github.com/cybercore-tech/agentforge/releases/tag/v0.2.0 verified with a plain
+- https://github.com/cybercoretech/agentforge/releases/tag/v0.2.0 verified with a plain
   `sha256sum -c SHA256SUMS`, and the binaries report `0.2.0`.
 
 ## P4-M008 completion evidence
@@ -210,7 +210,7 @@ No active milestone. P3-M006 — external MCP servers behind the gateway — is 
 - Approved plan: `.plans/P5-M001-first-release-v0-1-0.plan.md` (three amendments).
 - Release commit `b1f1cab`, tagged `v0.1.0`: CI `36012325272` and `36012648916` green, and packaging
   dry run `36012653332`.
-- Release: https://github.com/cybercore-tech/agentforge/releases/tag/v0.1.0. Four archives with
+- Release: https://github.com/cybercoretech/agentforge/releases/tag/v0.1.0. Four archives with
   `.sha256` files and `SHA256SUMS`. A downloaded Linux binary verified and reports `0.1.0`.
 - The tag run `36013033041` built every target, but its publish job failed (no checkout, so `gh`
   had no repository). It was published from that run's artifacts. The workflow is fixed in
@@ -563,7 +563,7 @@ publication.
 - The README now matches the P2-M017 baseline and explicitly documents alpha limitations, trust
   boundaries, operator responsibilities, safe first-run checks, and failure inspection paths.
 - The public Pages CTA opens a local accessible README dialog with a full-document link; the
-  repository About homepage is `https://cybercore-tech.github.io/agentforge/`.
+  repository About homepage is `https://cybercoretech.github.io/agentforge/`.
 
 ## P2-M017 completion evidence
 
@@ -582,7 +582,7 @@ publication.
   green, with the deployment environment URL expression validated on the repaired SHA.
 - Pages workflow repair closure: `24d1571`; exact CI `35554451233` and Pages deployment
   `35554451229` are green for the exact closure SHA.
-- The public site is live at `https://cybercore-tech.github.io/agentforge/`. It is dependency-free,
+- The public site is live at `https://cybercoretech.github.io/agentforge/`. It is dependency-free,
   responsive, keyboard-accessible, reduced-motion aware, and keeps the alpha/pre-release warning
   visible. The repository and its durable evidence remain authoritative.
 

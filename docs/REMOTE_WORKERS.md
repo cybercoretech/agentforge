@@ -224,7 +224,7 @@ abandoned attempt waits for you (grant it manually to retry). Automatic grants a
 ## Workers on other machines (GhostPort)
 
 P4-M007 (ADR-0050) adds an authenticated, encrypted channel for workers on other hosts. AgentForge
-still listens only on loopback. [GhostPort](https://github.com/cybercore-tech/ghostport) carries
+still listens only on loopback. [GhostPort](https://github.com/cybercoretech/ghostport) carries
 the traffic (Noise KK, pinned keys), and every request is also authenticated with the worker's own
 AgentForge secret. A remote worker claims, renews, and releases its leases and receives the exact
 contract and base commit (P4-M007). It then runs the task and returns the result for exact-SHA

@@ -9,16 +9,16 @@ rules live in [`AGENTS.md`](../AGENTS.md) and [`GOVERNANCE.md`](GOVERNANCE.md).
 
 | What | Where |
 | --- | --- |
-| Canonical repository | <https://github.com/cybercore-tech/agentforge> (`origin`, HTTPS) |
+| Canonical repository | <https://github.com/cybercoretech/agentforge> (`origin`, HTTPS) |
 | Historical repository | `darkstardevx/agentforge`, history up to `976c4f9`, not updated (ADR-0041) |
-| Project site | <https://cybercore-tech.github.io/agentforge/> |
+| Project site | <https://cybercoretech.github.io/agentforge/> |
 | Default branch | `main`; integration is fast-forward only |
 
 Pushes use HTTPS. On the operator machine, SSH keys belong to the personal account, so push with a
 token for the owning account:
 
 ```bash
-git push "https://x-access-token:$(gh auth token -u cybercore-tech)@github.com/cybercore-tech/agentforge.git" main
+git push "https://x-access-token:$(gh auth token -u cybercore-tech)@github.com/cybercoretech/agentforge.git" main
 ```
 
 ## GitHub workflows

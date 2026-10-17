@@ -136,7 +136,7 @@ add one line noting the `site/` exemption.
 ## Completion record
 
 Implementation commit: 5fc6c1a (squash merge of #5)
-CI run: https://github.com/cybercore-tech/agentforge/actions/runs/37081086848
+CI run: https://github.com/cybercoretech/agentforge/actions/runs/37081086848
 CI result: success
 Completed: 2026-10-02
 Notes: `is_implementation_path` now also excludes paths under `site/`.

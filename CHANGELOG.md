@@ -238,8 +238,8 @@ coding agent (Claude Code), with hermetic gates, audited agent evidence, and ope
 - Tasks that declare `required_gates` run exactly those gates, and a missing gate profile fails
   preflight before any side effect. Blueprint default gates are copied into new tasks only when a
   matching profile exists (P1-M007). This milestone was implemented by Claude Code through AgentForge.
-- The canonical repository is now `https://github.com/cybercore-tech/agentforge`, with the project
-  site at `https://cybercore-tech.github.io/agentforge/` (P2-M025).
+- The canonical repository is now `https://github.com/cybercoretech/agentforge`, with the project
+  site at `https://cybercoretech.github.io/agentforge/` (P2-M025).
 - Daemon executions stream keepalive frames and hold a single execution slot, so `daemon run` and
   `daemon launch` work for agents of any length within their profile timeout (P2-M024).
 - Every CI job has an explicit timeout (P2-M023).
@@ -280,8 +280,8 @@ coding agent (Claude Code), with hermetic gates, audited agent evidence, and ope
 - Release artifacts are intended for evaluation and controlled local use, not unattended production
   deployment.
 
-[Unreleased]: https://github.com/cybercore-tech/agentforge/compare/v0.3.1...HEAD
-[0.3.1]: https://github.com/cybercore-tech/agentforge/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/cybercore-tech/agentforge/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/cybercore-tech/agentforge/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/cybercore-tech/agentforge/releases/tag/v0.1.0
+[Unreleased]: https://github.com/cybercoretech/agentforge/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/cybercoretech/agentforge/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/cybercoretech/agentforge/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/cybercoretech/agentforge/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/cybercoretech/agentforge/releases/tag/v0.1.0
