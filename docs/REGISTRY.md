@@ -26,7 +26,7 @@ names are global and cannot be reused by this project while those packages exist
 - Repository: `https://github.com/cybercoretech/agentforge`
 - Project site: `https://cybercoretech.github.io/agentforge/`
 - History: imported from the retired `darkstardevx/agentforge` copy (up to `976c4f9`);
-  the canonical repository moved to `cybercore-tech` on 2026-09-23, see ADR-0041
+  the canonical repository moved to the `cybercoretech` organization on 2026-09-23, see ADR-0041
 - CLI binary: `forge`
 - Optional local daemon binary: `forged`
 - Selected future Cargo package: `agentforge-platform` (not yet published)
