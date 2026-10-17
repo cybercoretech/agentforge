@@ -24,7 +24,7 @@ since P2-M019 (gates, CI observation, batch launch, daemon fixes, remote-worker 
 ## Context
 
 On 2026-09-23 the full history (`976c4f9`, 13 branches) was pushed to the empty
-`cybercore-tech/agentforge`. Pages was enabled with workflow builds and deployed successfully, the
+`cybercoretech/agentforge`. Pages was enabled with workflow builds and deployed successfully, the
 repository description and homepage were set, and the local `origin` now points there. P2-M024 was
 the first milestone pushed to the new repository. Repository-owned references still point at
 `darkstardevx`: `Cargo.toml` `repository`/`homepage`, README badges, links, and clone command, the
@@ -48,7 +48,7 @@ Not applicable; no runtime behavior changes.
 
 ## ADRs
 
-- ADR-0041: `cybercore-tech/agentforge` is the canonical repository; `darkstardevx/agentforge` is
+- ADR-0041: `cybercoretech/agentforge` is the canonical repository; `darkstardevx/agentforge` is
   the historical location.
 
 ## Public API / CLI
@@ -125,7 +125,7 @@ CHANGELOG unreleased entries; REGISTRY and RELEASE URLs; ADR-0041.
 
 ## Acceptance criteria
 
-- [x] All repository-owned links and metadata name `cybercore-tech/agentforge`.
+- [x] All repository-owned links and metadata name `cybercoretech/agentforge`.
 - [x] README reflects the current capabilities and roadmap.
 - [x] Pages deploys from the new repository with correct links.
 - [x] Full local validation and exact-SHA CI evidence are recorded before closure.
@@ -134,12 +134,12 @@ CHANGELOG unreleased entries; REGISTRY and RELEASE URLs; ADR-0041.
 
 Implementation commit: `e840557` (full SHA recorded in PROJECT_STATE.md)
 CI run: `35964790564`, `35964797514`, `35964804756`; Pages `35964788019` (all dispatched on
-`cybercore-tech/agentforge`)
+`cybercoretech/agentforge`)
 CI result: green across all seven jobs in all three runs; Pages deployed from the new repository.
 Completed: 2026-09-23
 Notes:
 Repository metadata, README, CHANGELOG, `docs/REGISTRY.md`, and the Pages site now name
-`cybercore-tech/agentforge`. Only two intentional notes mention the historical `darkstardevx`
+`cybercoretech/agentforge`. Only two intentional notes mention the historical `darkstardevx`
 location. `cargo metadata` reports the new repository and homepage. The live site at
 `https://cybercoretech.github.io/agentforge/` serves seven links to the new repository in
 `index.html` and the new README URL in `script.js`. README "What works today", roadmap, and docs map

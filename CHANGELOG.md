@@ -17,7 +17,7 @@ All notable AgentForge changes are documented here. The format follows
 
 The first release with an **attested SBOM**: `agentforge-0.3.1.cdx.json` lists everything built into
 `forge` and `forged`, and every archive carries an SBOM attestation next to its build provenance
-(`gh attestation verify <archive> -R cybercore-tech/agentforge --predicate-type
+(`gh attestation verify <archive> -R cybercoretech/agentforge --predicate-type
 https://cyclonedx.org/bom`). It also ships the fixes found by rehearsing two hosts in containers
 with network chaos. **Upgrade if you run remote workers:**
 - `v0.3.0` workers abandon finished work when a result upload is lost;
@@ -31,7 +31,7 @@ Setting up a worker host is now two commands (`scripts/worker-bundle`, then
 
 - Releases include a CycloneDX SBOM of `forge` and `forged` (`agentforge-<version>.cdx.json`),
   generated with `cargo-cyclonedx` 0.5.9 and merged by `scripts/sbom-merge`. Every archive carries
-  an SBOM attestation. Verify it with `gh attestation verify <archive> -R cybercore-tech/agentforge
+  an SBOM attestation. Verify it with `gh attestation verify <archive> -R cybercoretech/agentforge
   --predicate-type https://cyclonedx.org/bom`, and the publish job verifies it on the uploaded
   assets (P5-M006, ADR-0054).
 
@@ -63,7 +63,7 @@ Setting up a worker host is now two commands (`scripts/worker-bundle`, then
 
 The first release with **attested builds**: every archive carries a keyless SLSA build-provenance
 attestation from the release workflow, so you can verify where it came from with `gh attestation
-verify <archive> -R cybercore-tech/agentforge`. Remote workers can now run unattended. They ride
+verify <archive> -R cybercoretech/agentforge`. Remote workers can now run unattended. They ride
 out coordinator outages, run under a systemd user unit, and show up in `forge hud`. Agents can call
 AgentForge's own task tools over MCP, under their capability policy. **Upgrading from `v0.2.0` is
 recommended:** in `v0.2.0` a `forged` started with `forge daemon start` stops expiring leases after
@@ -73,7 +73,7 @@ the first expiry. Compatibility note: tool-call audit events (code 13) cannot be
 
 - Release archives carry keyless SLSA build-provenance attestations from the release workflow
   (P5-M004, ADR-0053). Verify a download with `gh attestation verify <archive> -R
-  cybercore-tech/agentforge`. The workflow verifies the attestations of the assets it uploaded,
+  cybercoretech/agentforge`. The workflow verifies the attestations of the assets it uploaded,
   and manual release runs rehearse it.
 
 - `forge mcp serve`, an MCP task-tool gateway (P3-M005, ADR-0052). An agent can call

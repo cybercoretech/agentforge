@@ -300,7 +300,7 @@ No active milestone. P3-M006 — external MCP servers behind the gateway — is 
 
 - Approved plan: `.plans/P2-M024-daemon-long-running-requests.plan.md`.
 - Implementation commit: `5ef03f18715c95fed2b1a6b6e3720e9537bd3dac`.
-- Exact CI on `5ef03f1` (dispatched on `cybercore-tech/agentforge`): `35964099187`, `35964105073`,
+- Exact CI on `5ef03f1` (dispatched on `cybercoretech/agentforge`): `35964099187`, `35964105073`,
   and `35964110929` are green across all seven jobs.
 - Daemon executions no longer use the 2-second control timeout: keepalive frames, a single execution
   slot, `BUSY` for overlapping executions and mid-run stop, and `ExecutionInterrupted` instead of the

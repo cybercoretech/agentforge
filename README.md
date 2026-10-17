@@ -11,7 +11,7 @@ CI observations, audit records, and human decisions. 🧭
 > ([v0.3.1](https://github.com/cybercoretech/agentforge/releases/tag/v0.3.1), attested builds and SBOM) · alpha: evolving
 > APIs, local-first, not for unattended production use
 >
-> **Canonical repository:** [`cybercore-tech/agentforge`](https://github.com/cybercoretech/agentforge).
+> **Canonical repository:** [`cybercoretech/agentforge`](https://github.com/cybercoretech/agentforge).
 > Its earlier history (up to `976c4f9`) came over from the old `darkstardevx/agentforge` copy,
 > which is now retired.
 
@@ -42,7 +42,7 @@ AgentForge is **not published to crates.io**. Do not run `cargo add agentforge` 
 project: that name is already occupied by an unrelated Rust crate. The supported public install
 path is the official GitHub release archive. Since P5-M004 each archive carries a keyless build
 provenance attestation, so verify a download with `gh attestation verify <archive> -R
-cybercore-tech/agentforge` (or `sha256sum -c SHA256SUMS` for integrity only). Local development
+cybercoretech/agentforge` (or `sha256sum -c SHA256SUMS` for integrity only). Local development
 can install `forge` and `forged` from this checkout with `cargo install --path`. See
 [`docs/REGISTRY.md`](docs/REGISTRY.md) and [`docs/RELEASE.md`](docs/RELEASE.md) for the identity
 policy and the gate required before any future package publication.
@@ -560,7 +560,7 @@ paths and restored reliable CI:
 - **P1-M005** `forge ci observe` records classified CI evidence;
 - **P1-M006** `forge task launch-batch` runs disjoint tasks concurrently;
 - **P2-M024** daemon executions of any length, with keepalives and a single execution slot;
-- **P2-M025** the canonical repository moved to `cybercore-tech/agentforge`;
+- **P2-M025** the canonical repository moved to `cybercoretech/agentforge`;
 - **P2-M026** the project site gained a generated *What's new* section;
 - **P2-M027** a real agent (Claude Code) builds AgentForge through AgentForge. Its first
   milestone was **P1-M007** (task-declared required gates);

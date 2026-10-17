@@ -63,15 +63,15 @@ The GitHub release also contains a consolidated `SHA256SUMS` file.
 
 Since P5-M004 every archive also has a **build-provenance attestation** (ADR-0053). It is a signed
 SLSA statement that the archive, by its SHA-256, was built by `.github/workflows/release.yml` in
-`cybercore-tech/agentforge` from a specific commit. It is signed keylessly with a short-lived
+`cybercoretech/agentforge` from a specific commit. It is signed keylessly with a short-lived
 Sigstore certificate issued to the workflow, so there is no key to hold, and it is stored by
 GitHub, not as a release file. Verify a download:
 
 ```bash
-gh attestation verify agentforge-<version>-<target>.tar.gz -R cybercore-tech/agentforge
+gh attestation verify agentforge-<version>-<target>.tar.gz -R cybercoretech/agentforge
 # stricter: pin the workflow that must have built it
-gh attestation verify agentforge-<version>-<target>.tar.gz -R cybercore-tech/agentforge \
-  --signer-workflow cybercore-tech/agentforge/.github/workflows/release.yml
+gh attestation verify agentforge-<version>-<target>.tar.gz -R cybercoretech/agentforge \
+  --signer-workflow cybercoretech/agentforge/.github/workflows/release.yml
 ```
 
 A modified archive, or one built anywhere else, fails. `v0.1.0` and `v0.2.0` predate attestations
@@ -103,10 +103,10 @@ Every archive also carries an **SBOM attestation**: the same keyless signature a
 binding the SBOM to the archive's SHA-256. Verify it and print the SBOM it attests:
 
 ```bash
-gh attestation verify agentforge-<version>-<target>.tar.gz -R cybercore-tech/agentforge \
+gh attestation verify agentforge-<version>-<target>.tar.gz -R cybercoretech/agentforge \
   --predicate-type https://cyclonedx.org/bom \
-  --signer-workflow cybercore-tech/agentforge/.github/workflows/release.yml
-gh attestation verify agentforge-<version>-<target>.tar.gz -R cybercore-tech/agentforge \
+  --signer-workflow cybercoretech/agentforge/.github/workflows/release.yml
+gh attestation verify agentforge-<version>-<target>.tar.gz -R cybercoretech/agentforge \
   --predicate-type https://cyclonedx.org/bom --format json \
   | jq '.[0].verificationResult.statement.predicate.components[].name'
 ```
@@ -150,11 +150,11 @@ the tag:
 
 ```bash
 for t in x86_64-unknown-linux-gnu x86_64-apple-darwin aarch64-apple-darwin x86_64-pc-windows-msvc; do
-  gh run download <run-id> -R cybercore-tech/agentforge -n "$t" -D dist
+  gh run download <run-id> -R cybercoretech/agentforge -n "$t" -D dist
 done
 rm -rf dist/*/                                   # keep only the archives and .sha256 files
 (cd dist && for f in *.sha256; do sha256sum -c "$f"; done && sha256sum *.tar.gz > SHA256SUMS)
-gh release create vX.Y.Z dist/* --repo cybercore-tech/agentforge --verify-tag \
+gh release create vX.Y.Z dist/* --repo cybercoretech/agentforge --verify-tag \
   --title "AgentForge vX.Y.Z" --notes-file <notes>
 ```
 
@@ -192,7 +192,7 @@ attestations stay on GitHub. They are harmless: they describe snapshot archives 
 released. Run one before tagging a release after any change to the release workflow:
 
 ```bash
-gh workflow run release.yml -R cybercore-tech/agentforge --ref main
+gh workflow run release.yml -R cybercoretech/agentforge --ref main
 ```
 
 Before P5-M003, the upload was tag-only, and it failed on both real tags (`v0.1.0` and `v0.2.0`)
@@ -202,8 +202,8 @@ If a rehearsal run is cancelled between upload and deletion, a `rehearsal-*` dra
 it by hand; it has no tag:
 
 ```bash
-gh release list -R cybercore-tech/agentforge | grep rehearsal-
-gh release delete rehearsal-<run id>-<attempt> -R cybercore-tech/agentforge --yes
+gh release list -R cybercoretech/agentforge | grep rehearsal-
+gh release delete rehearsal-<run id>-<attempt> -R cybercoretech/agentforge --yes
 ```
 
 `scripts/publish-release --self-test` (run in CI) checks both modes against a fake `gh`: a missing,

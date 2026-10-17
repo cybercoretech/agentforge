@@ -168,14 +168,14 @@ jobs:
           ls -l
 
       # Keyless SLSA build provenance (Sigstore, from this workflow's OIDC identity): no key to
-      # hold. Verify with `gh attestation verify <archive> -R cybercore-tech/agentforge`.
+      # hold. Verify with `gh attestation verify <archive> -R cybercoretech/agentforge`.
       - name: Attest build provenance
         uses: actions/attest@v4
         with:
           subject-path: release/*.tar.gz
 
       # The same keyless signing, binding the SBOM to every archive (ADR-0054). Verify with
-      # `gh attestation verify <archive> -R cybercore-tech/agentforge --predicate-type
+      # `gh attestation verify <archive> -R cybercoretech/agentforge --predicate-type
       # https://cyclonedx.org/bom`.
       - name: Attest the SBOM
         uses: actions/attest@v4

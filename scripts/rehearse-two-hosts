@@ -76,7 +76,7 @@ on() {
 command -v docker > /dev/null || die "docker is required"
 log "rehearsal work directory: $work"
 if [ -z "$ghostport_bin" ]; then
-  (cd "$work" && gh release download v0.1.2 -R cybercore-tech/ghostport \
+  (cd "$work" && gh release download v0.1.2 -R cybercoretech/ghostport \
     -p 'ghostport-x86_64-unknown-linux-gnu.tar.gz*') >> "$transcript" 2>&1 \
     || die "cannot download GhostPort v0.1.2"
   check "GhostPort v0.1.2 archive checksum" bash -c "cd '$work' && \
@@ -90,14 +90,14 @@ ghostport_bin="$(readlink -f "$ghostport_bin")"   # docker cp copies a symlink a
 
 # 0. The release archive, verified before it is trusted.
 if [ -z "$archive" ]; then
-  (cd "$work" && gh release download v0.3.1 -R cybercore-tech/agentforge \
+  (cd "$work" && gh release download v0.3.1 -R cybercoretech/agentforge \
     -p SHA256SUMS -p '*x86_64-unknown-linux-gnu.tar.gz') >> "$transcript" 2>&1 \
     || die "cannot download the v0.3.1 release"
   archive="$work/agentforge-0.3.1-x86_64-unknown-linux-gnu.tar.gz"
   check "release archive checksum" \
     bash -c "cd '$work' && sha256sum --quiet -c --ignore-missing SHA256SUMS"
-  check "release archive attestation" gh attestation verify "$archive" -R cybercore-tech/agentforge \
-    --signer-workflow cybercore-tech/agentforge/.github/workflows/release.yml
+  check "release archive attestation" gh attestation verify "$archive" -R cybercoretech/agentforge \
+    --signer-workflow cybercoretech/agentforge/.github/workflows/release.yml
 fi
 [ -f "$archive" ] || die "no archive: $archive"
 

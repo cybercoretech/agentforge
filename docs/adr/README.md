@@ -46,7 +46,7 @@ ADRs are permanent numbered records of consequential design decisions.
 | ADR-0038 | Accepted | Operator CI observation with recorded classification |
 | ADR-0039 | Accepted | Concurrent batch launch with a single state coordinator |
 | ADR-0040 | Accepted | Keepalive frames and a single execution slot for daemon executions |
-| ADR-0041 | Accepted | cybercore-tech/agentforge is the canonical repository |
+| ADR-0041 | Accepted | cybercoretech/agentforge is the canonical repository |
 | ADR-0042 | Accepted | The site's updates feed is generated from milestone records |
 | ADR-0043 | Accepted | Real agents run through a bridge that owns path verification and commits |
 | ADR-0044 | Accepted | Milestone tags mark closure commits; release tags stay separate |

@@ -28,7 +28,7 @@ acceptance.
 
 P4-M004 to P4-M006 made leases operable, runnable by a same-host worker, and optionally
 auto-dispatched. Everything assumes the worker shares the project directory. GhostPort
-(`cybercore-tech/ghostport`) already provides pinned-key Noise KK tunnels, NAT-friendly
+(`cybercoretech/ghostport`) already provides pinned-key Noise KK tunnels, NAT-friendly
 client-dials-server connections, and per-peer link restrictions. It needs tokio and snow, so it
 runs as a separate process in front of AgentForge instead of being linked into it. That also keeps
 AgentForge's "loopback only" rule: GhostPort terminates the network side and forwards to a

@@ -18,7 +18,7 @@ Pushes use HTTPS. On the operator machine, SSH keys belong to the personal accou
 token for the owning account:
 
 ```bash
-git push "https://x-access-token:$(gh auth token -u cybercore-tech)@github.com/cybercoretech/agentforge.git" main
+git push "https://x-access-token:$(gh auth token -u cybercoretech)@github.com/cybercoretech/agentforge.git" main
 ```
 
 ## GitHub workflows
@@ -42,8 +42,8 @@ CI jobs:
 Manual dispatch (for example, repeat runs on the same commit):
 
 ```bash
-gh workflow run 'AgentForge CI' -R cybercore-tech/agentforge --ref main
-gh workflow run 'AgentForge Pages' -R cybercore-tech/agentforge --ref main
+gh workflow run 'AgentForge CI' -R cybercoretech/agentforge --ref main
+gh workflow run 'AgentForge Pages' -R cybercoretech/agentforge --ref main
 ```
 
 ### CI evidence practice

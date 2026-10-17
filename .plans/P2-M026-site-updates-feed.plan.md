@@ -146,7 +146,7 @@ mentions the updates section. The CHANGELOG records the feature. ADR-0042 record
 
 Implementation commit: `adaacc65839e510fdea7d4acbe0d317b3538816b`
 CI run: `35966436681`, `35966450804`, `35966453213`; Pages `35966439149` (dispatched on
-`cybercore-tech/agentforge`)
+`cybercoretech/agentforge`)
 CI result: green across all seven jobs in all three runs, including the new site-feed validation
 step. Pages deployed and the live section rendered.
 Completed: 2026-09-23

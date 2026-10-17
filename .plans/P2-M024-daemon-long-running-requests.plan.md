@@ -118,7 +118,7 @@ No new dependency. Standard-library threads, channels, and a mutex.
 4. Add the execution slot, worker thread, keepalive frames, and client frame loop.
 5. Add the busy, stop-during-execution, and status-during-execution tests.
 6. Update docs, README, and ADR-0040.
-7. Run the full gate, push to `cybercore-tech/agentforge`, and record repeated exact-SHA CI
+7. Run the full gate, push to `cybercoretech/agentforge`, and record repeated exact-SHA CI
    evidence before closure.
 
 ## Failure modes
@@ -148,11 +148,11 @@ errors. README notes that long agents work through the daemon. ADR-0040 records 
 ## Completion record
 
 Implementation commit: `5ef03f18715c95fed2b1a6b6e3720e9537bd3dac`
-CI run: `35964099187`, `35964105073`, `35964110929` (dispatched on `cybercore-tech/agentforge`)
+CI run: `35964099187`, `35964105073`, `35964110929` (dispatched on `cybercoretech/agentforge`)
 CI result: green across all seven jobs in all three runs, including Windows 2022.
 Completed: 2026-09-23
 Notes:
-First milestone pushed to the new canonical repository, `cybercore-tech/agentforge`. Pushes there
+First milestone pushed to the new canonical repository, `cybercoretech/agentforge`. Pushes there
 did not trigger `push` workflows at closure time; the new repository recorded no push events.
 Exact-SHA evidence therefore comes from manually dispatched runs, which check out the same head.
 

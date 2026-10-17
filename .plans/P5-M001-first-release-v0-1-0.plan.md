@@ -167,7 +167,7 @@ Recovery, without moving the tag:
 1. Publish `v0.1.0` from run `36013033041`'s own CI-built artifacts, with the workflow's exact
    steps: consolidated `SHA256SUMS` over the `.tar.gz` files, then `gh release create v0.1.0 dist/*
    --verify-tag --generate-notes --title "AgentForge v0.1.0"`, adding `--repo
-   cybercore-tech/agentforge`. Verify each archive's `.sha256`, `SHA256SUMS`, and a downloaded
+   cybercoretech/agentforge`. Verify each archive's `.sha256`, `SHA256SUMS`, and a downloaded
    Linux binary.
 2. Fix `release.yml`: the publish step passes `--repo "${GITHUB_REPOSITORY}"`, so future tags
    publish without a checkout. `docs/RELEASE.md` and `docs/OPERATIONS.md` record the incident and

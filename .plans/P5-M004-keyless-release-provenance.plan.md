@@ -9,7 +9,7 @@ Owner: AgentForge project
 
 Every release archive carries a signed SLSA build-provenance attestation made by the release
 workflow itself, with no key for anyone to hold. Anyone can verify an archive with
-`gh attestation verify <archive> -R cybercore-tech/agentforge`, which proves it was built by
+`gh attestation verify <archive> -R cybercoretech/agentforge`, which proves it was built by
 `release.yml` in this repository from a specific commit. The workflow verifies the attestations of
 the assets it actually uploaded, and the upload rehearsal (P5-M003) proves the whole path without a
 release.
@@ -166,7 +166,7 @@ Notes:
   assets, then the draft was deleted. Afterwards there was no draft and no `rehearsal-*` tag, and
   `v0.2.0` is still Latest.
 - **Independent check from this machine:** the run's Linux archive verified with `gh attestation
-  verify --signer-workflow cybercore-tech/agentforge/.github/workflows/release.yml`. Its
+  verify --signer-workflow cybercoretech/agentforge/.github/workflows/release.yml`. Its
   certificate was issued by `https://token.actions.githubusercontent.com` to
   `release.yml@refs/heads/main`, source digest `623be58...`, trigger `workflow_dispatch`. A copy
   with one byte appended failed (no attestation for its digest).

@@ -9,7 +9,7 @@ Owner: AgentForge project
 
 Every release carries a CycloneDX SBOM of `forge` and `forged`, attached to the release and
 **attested** for every archive, next to the build provenance (P5-M004). Anyone can check it with
-`gh attestation verify <archive> -R cybercore-tech/agentforge --predicate-type
+`gh attestation verify <archive> -R cybercoretech/agentforge --predicate-type
 https://cyclonedx.org/bom`.
 
 The milestone is also the operator's option 2: **it is implemented by Claude Code through AgentForge

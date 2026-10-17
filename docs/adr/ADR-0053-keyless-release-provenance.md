@@ -31,7 +31,7 @@ minisign key, and deferring again.
 
 ## Consequences
 
-- Users verify with `gh attestation verify <archive> -R cybercore-tech/agentforge` (or any
+- Users verify with `gh attestation verify <archive> -R cybercoretech/agentforge` (or any
   Sigstore/in-toto verifier), with no key to distribute.
 - Provenance proves where and from what an archive was built, not that the code is correct.
 - `v0.1.0` and `v0.2.0` predate this and are verifiable by checksum only; they are not rebuilt.

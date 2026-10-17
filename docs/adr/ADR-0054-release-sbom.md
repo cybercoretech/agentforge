@@ -37,7 +37,7 @@ installed with `cargo install --locked` in the release job, as the SBOM tool.
 
 ## Consequences
 
-- Users verify with `gh attestation verify <archive> -R cybercore-tech/agentforge --predicate-type
+- Users verify with `gh attestation verify <archive> -R cybercoretech/agentforge --predicate-type
   https://cyclonedx.org/bom`, and can read the SBOM with any CycloneDX tool.
 - Vulnerability scanning and license policy become possible on the SBOM; neither is part of this
   decision.

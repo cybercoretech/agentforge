@@ -1,4 +1,4 @@
-# ADR-0041: cybercore-tech/agentforge is the canonical repository
+# ADR-0041: cybercoretech/agentforge is the canonical repository
 
 - Status: Accepted
 - Date: 2026-09-23
@@ -8,7 +8,7 @@
 
 The Cybercore projects are moving from the personal `darkstardevx` GitHub account to the
 `cybercore-tech` account. AgentForge's full history (13 branches, up to `976c4f9`) was pushed to the
-new, previously empty `cybercore-tech/agentforge`. Pages was enabled there with workflow builds and
+new, previously empty `cybercoretech/agentforge`. Pages was enabled there with workflow builds and
 deployed, and development continued there from P2-M024. Metadata, links, and the public site still
 named `darkstardevx`.
 

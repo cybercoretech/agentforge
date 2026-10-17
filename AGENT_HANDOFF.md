@@ -113,7 +113,7 @@
   merge_protected_branch` at creation. Never chain `worktree retire` after `integrate` with `;`.
 - P2-M028 implementation commit: `2ffd59d`; CI `35969105365` (push) and `35969113717` are green.
   The gate now clears `GIT_*` before cargo and isolates linked-worktree target dirs.
-- Push-triggered workflows now work on `cybercore-tech/agentforge` (first seen on `f5c7a14`).
+- Push-triggered workflows now work on `cybercoretech/agentforge` (first seen on `f5c7a14`).
 - The operator's `.forge/` in this checkout is gitignored. It holds the `claude-code` agent profile
   and a `workspace` gate (`./scripts/gate.sh full`).
 - P2-M026 — Project site updates feed — is complete.
