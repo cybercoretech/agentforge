@@ -130,13 +130,13 @@ rehearsal exercises that install.
 
 ## Acceptance criteria
 
-- [ ] A dispatched rehearsal completes and leaves no draft and no tag.
-- [ ] `v0.4.0` is published from a commit whose CI is green.
-- [ ] The release has ten assets.
-- [ ] Both attestation types verify for all four archives against the canonical repository.
-- [ ] The extracted Linux `forge` reports `0.4.0`.
-- [ ] README and the site no longer claim the repository has no release artifacts.
-- [ ] No tag was moved or deleted.
+- [x] A dispatched rehearsal completes and leaves no draft and no tag.
+- [x] `v0.4.0` is published from a commit whose CI is green.
+- [x] The release has ten assets.
+- [x] Both attestation types verify for all four archives against the canonical repository.
+- [x] The extracted Linux `forge` reports `0.4.0`.
+- [x] README and the site no longer claim the repository has no release artifacts.
+- [x] No tag was moved or deleted.
 
 ## Completion record
 

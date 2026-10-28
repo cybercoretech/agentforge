@@ -131,12 +131,12 @@ ID so the claim is checkable.
 
 ## Acceptance criteria
 
-- [ ] A push to `main` creates an AgentForge CI run for that commit with no manual dispatch.
-- [ ] The run is green on all seven jobs.
-- [ ] A `pull_request` event creates a run.
-- [ ] `workflow_dispatch` still works.
-- [ ] The run ID is recorded in `PROJECT_STATE.md`.
-- [ ] No check, job, or step was removed to make this pass.
+- [x] A push to `main` creates an AgentForge CI run for that commit with no manual dispatch.
+- [x] The run is green on all seven jobs.
+- [x] A `pull_request` event creates a run.
+- [x] `workflow_dispatch` still works.
+- [x] The run ID is recorded in `PROJECT_STATE.md`.
+- [x] No check, job, or step was removed to make this pass.
 
 ## Completion record
 

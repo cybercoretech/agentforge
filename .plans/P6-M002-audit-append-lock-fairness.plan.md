@@ -131,12 +131,12 @@ current time, so no `rand` dependency is added.
 
 ## Acceptance criteria
 
-- [ ] A waiter that observes the lock changing hands does not fail while progress continues.
-- [ ] A lock whose fingerprint is unchanged for five seconds still fails with the operator message.
-- [ ] Total waiting is bounded.
-- [ ] A crashed holder's lock is still reported, never stolen.
-- [ ] The contention test passes on 20 consecutive local runs.
-- [ ] No new dependency and no MSRV change.
+- [x] A waiter that observes the lock changing hands does not fail while progress continues.
+- [x] A lock whose fingerprint is unchanged for five seconds still fails with the operator message.
+- [x] Total waiting is bounded.
+- [x] A crashed holder's lock is still reported, never stolen.
+- [x] The contention test passes on 20 consecutive local runs.
+- [x] No new dependency and no MSRV change.
 
 ## Completion record
 
