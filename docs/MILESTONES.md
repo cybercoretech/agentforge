@@ -131,4 +131,4 @@ Status values are `planned`, `active`, `complete`, `blocked`, `split`, and `supe
 | --- | --- | --- | --- |
 | P6-M001 | complete | Restore the canonical CI gate | A push to `main` creates an AgentForge CI run for that commit without manual dispatch, and it is green on all seven jobs; `pull_request` triggers likewise. |
 | P6-M002 | complete | Audit append lock fairness | A waiter keeps waiting while the lock changes hands, a lock unchanged for five seconds is still reported rather than stolen, total waiting is bounded, and the contention test passes 20 consecutive runs. |
-| P6-M003 | active | Release v0.4.0 | `v0.4.0` is published from a green commit with ten assets, both attestation types verify for every archive against `cybercoretech/agentforge`, and the extracted binary reports `0.4.0`. |
+| P6-M003 | complete | Release v0.4.0 | `v0.4.0` is published from a green commit with ten assets, both attestation types verify for every archive against `cybercoretech/agentforge`, and the extracted binary reports `0.4.0`. |

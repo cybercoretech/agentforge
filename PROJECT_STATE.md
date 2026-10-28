@@ -17,7 +17,7 @@ capability work is approved. Phase A then adds a shared bridge kit with Codex CL
 
 ## Active milestone
 
-No active milestone. P3-M006 — external MCP servers behind the gateway — is complete.
+No active milestone. P6-M003 — release v0.4.0 — is complete.
 `v0.4.0` is the latest release, and every completed milestone is tagged `milestone/<ID>`.
 
 ## Known issues
@@ -30,6 +30,20 @@ The completion records below cite CI run IDs from the retired predecessor reposi
 (`darkstardevx/agentforge`). They describe work that did happen, but the IDs no longer resolve in
 any repository, so they cannot be verified from here. Records from `0.4.0` onward cite runs in
 `cybercoretech/agentforge` and are checkable (ADR-0056, Phase 0).
+
+## P6-M003 completion evidence
+
+- Approved plan: `.plans/P6-M003-release-v0-4-0.plan.md`.
+- Version commit `67c6b09` passed CI as run `40631549639` (seven of seven jobs) before the tag was
+  created; annotated tag `v0.4.0` points at that commit.
+- The tag push produced release run `40631821936`, five of five jobs green, which also proves the
+  tag trigger restored in P6-M001.
+- `gh release view v0.4.0` lists ten assets: four `.tar.gz`, four `.sha256`, the CycloneDX SBOM, and
+  `SHA256SUMS`. `sha256sum -c SHA256SUMS` verifies all five checksummed files.
+- Provenance **and** SBOM attestations verify for all four archives against
+  `cybercoretech/agentforge` with `--signer-workflow cybercoretech/agentforge/.github/workflows/release.yml`.
+- The extracted Linux archive reports `AgentForge 0.4.0` and `AgentForge daemon 0.4.0`.
+- The rehearsal `40630999433` passed before the version bump and left no release, draft, or tag.
 
 ## P6-M002 completion evidence
 

@@ -1,6 +1,6 @@
 # Plan: P6-M003 — Release v0.4.0
 
-Status: Approved
+Status: Complete
 Milestone: P6-M003
 Created: 2026-10-27
 
@@ -140,8 +140,16 @@ rehearsal exercises that install.
 
 ## Completion record
 
-Implementation commit:
-CI run:
-Release run:
-Completed:
-Notes:
+Implementation commit: `67c6b09` (version bump and docs); tagged `v0.4.0`
+CI run: `40631549639` — push event on `67c6b09`, seven of seven jobs green; Pages `40631549611`
+Release run: `40631821936` — tag push on `67c6b09`, five of five jobs green; the tag push itself
+proved the `push: tags:` trigger restored in P6-M001
+Completed: 2026-10-27
+Notes: The `workflow_dispatch` rehearsal `40630999433` passed all five jobs and left zero releases,
+zero drafts, and zero `rehearsal-*` tags, so the version bump shipped against a pipeline that had
+already run end to end. Verification from this machine: `gh release view v0.4.0` lists exactly ten
+assets; `sha256sum -c SHA256SUMS` verifies all five checksummed files; provenance and SBOM
+attestations verify for all four archives against `cybercoretech/agentforge` with
+`--signer-workflow .../release.yml`; the extracted Linux archive reports `AgentForge 0.4.0` and
+`AgentForge daemon 0.4.0`. The merged SBOM is CycloneDX 1.5 with 69 components and no dangling
+`bom-ref`s. No tag was moved or deleted.
