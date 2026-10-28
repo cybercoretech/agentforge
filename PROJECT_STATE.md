@@ -11,12 +11,13 @@
 
 Phase A of 1.0 is in progress (ADR-0056). The shared bridge kit, the Codex CLI bridge, and its
 preflight are complete: bridges are thin adapters over one kit, and conformance — twenty-two
-end-to-end cases — is the price of being first-party. OpenCode is next (P6-M007), then
+end-to-end cases — is the price of being first-party. OpenCode is in progress (P6-M007), then
 provider-neutral `forge doctor --agents` (P6-M008).
 
 ## Active milestone
 
-No active milestone. P6-M006 — the Codex preflight and the corrected sandbox finding — is complete.
+P6-M007 — the OpenCode bridge and its worktree guard — is approved and awaiting implementation. The
+plan is `.plans/P6-M007-opencode-bridge.plan.md`; ADR-0061 records the policy and the two refusals.
 `v0.4.0` is the latest release, and every completed milestone is tagged `milestone/<ID>`.
 
 ## Known issues
