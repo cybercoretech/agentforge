@@ -118,11 +118,73 @@ profile, because the cleared environment has no useful `PATH`; see
 Add `argument=--model` and `argument=<model>` to pin a model. Use `--dry-run` (reads a prompt on
 stdin and prints the instructions) to preview what the agent will be told.
 
+### The Codex CLI bridge
+
+```text
+# .forge/agents/codex.conf
+version=1
+executable=/usr/bin/python3
+argument=/path/to/agentforge/scripts/agents/codex-bridge
+argument=--codex
+argument=/absolute/path/to/codex
+env.PATH=/usr/bin:/bin:/home/operator/.local/bin
+env.HOME=/home/operator
+timeout_ms=3600000
+max_output_bytes=8388608
+```
+
+The bridge runs `codex exec` with the instructions on stdin (`-`), `-C` bound to the task worktree,
+and `-s workspace-write` (ADR-0059). `--worktree` is never passed: AgentForge owns task worktrees,
+so a Codex-created one would sit outside the verification and integration path. The two
+`--dangerously-bypass-*` flags are never passed either.
+
+Codex brings its own sandbox, which reads everything and writes only to granted roots. The bridge
+grants the scratch directory (so the agent can write its commit message) and the task's assigned
+`CARGO_TARGET_DIR`. Writes outside those roots fail with `Read-only file system` and a non-zero
+status, so a blocked command is visible to the agent instead of silently dropped.
+
+`$CARGO_HOME` is **not** granted implicitly. A warm registry needs only reads — `cargo metadata` and
+a cold-target-directory `cargo check` both succeed against a read-only `$CARGO_HOME` — but fetching
+an uncached dependency needs both the `use_network` capability and an explicit root:
+
+```text
+argument=--writable-dir
+argument=/home/operator/.cargo
+```
+
+Network access is granted only for tasks that hold `use_network`, through
+`-c sandbox_workspace_write.network_access=true`. Approval policy is `never`, because nobody is
+present in a headless run to approve an escalation; a blocked command fails rather than waiting.
+
+For tasks that hold `use_mcp_tools`, add `argument=--forge` and `argument=/absolute/path/to/forge`.
+The gateway reaches Codex as `-c mcp_servers.agentforge.command` and `.args` overrides, rendered as
+TOML and parsed back with `tomllib` before the run, so a malformed override exits 2.
+
+Local models use `--oss`, which the bridge adds for you:
+
+```text
+argument=--local-provider
+argument=ollama
+```
+
+`lmstudio` is the other supported value. Sessions are `--ephemeral`, and the operator's
+`~/.codex/config.toml` is ignored by default so it cannot silently widen the policy; pass
+`--respect-user-config` to load it (needed for custom providers). Credentials still come from
+`CODEX_HOME`.
+
+**Verified limits.** The sandbox behavior above was measured with `codex-cli 0.165.0`. A live Codex
+turn could not be run on the machine where the bridge was written: it has no Codex credentials and
+no local model, and `codex sandbox` cannot re-exec a mise-installed Codex binary inside its own
+bwrap namespace. The bridge is therefore covered by its own self-test and by the conformance suite,
+not by a recorded model run. Installing Codex outside a mise/asdf shim, or via the official
+installer, is the likely remedy for the second limit.
+
 ### Working on a bridge
 
 ```text
 python3 scripts/agents/bridge_kit.py --self-test       # the shared kit, including the fixture
 ./scripts/agents/claude-code-bridge --self-test        # the bridge's own policy
+./scripts/agents/codex-bridge --self-test              # Codex's sandbox and argv policy
 python3 scripts/agents/bridge_conformance.py           # every registered bridge, end to end
 python3 scripts/agents/bridge_conformance.py --list    # which bridges are registered
 ```
@@ -131,7 +193,7 @@ The conformance suite drives each bridge against a stub agent in a throwaway Git
 covers in-boundary work, an out-of-boundary write, a forbidden path, renames in both directions,
 agent failure, no changes, a missing commit message, a failing pre-commit hook, a dry run, and
 malformed input. A bridge that does not pass is not first-party: adding one means adding a registry
-entry in `scripts/agents/bridge_conformance.py`, not new cases. All three commands run in CI.
+entry in `scripts/agents/bridge_conformance.py`, not new cases. All of these run in CI.
 
 Every run's full stdout and stderr, whether bridge or agent, are saved under
 `.forge/evidence/<task-id>/` and referenced by the `AgentFinished` audit event. `forge task launch`

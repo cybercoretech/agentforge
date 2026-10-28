@@ -50,6 +50,9 @@ jobs:
       - name: Self-test shared bridge kit
         run: python3 scripts/agents/bridge_kit.py --self-test
 
+      - name: Self-test Codex bridge
+        run: ./scripts/agents/codex-bridge --self-test
+
       - name: Conformance-test real-agent bridges
         run: python3 scripts/agents/bridge_conformance.py
 

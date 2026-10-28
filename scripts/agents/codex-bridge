@@ -1,0 +1,528 @@
+#!/usr/bin/env python3
+"""Run Codex CLI as an AgentForge agent.
+
+AgentForge starts this bridge inside the task's verified worktree with a cleared environment and
+writes an `agentforge-task-prompt-v1` document to stdin. The bridge:
+
+1. decodes the prompt strictly (malformed input exits 2 before any agent runs);
+2. turns it into natural-language instructions and runs `codex exec` in the worktree;
+3. checks every changed path against the task's allowed and forbidden paths;
+4. commits the changes, so the repository's own pre-commit hook and gate run on them.
+
+Steps 1, 3, and 4 come from `scripts/agents/bridge_kit.py` (ADR-0058). This file holds only what is
+Codex-specific: the instructions, the command line, the sandbox policy and its granted roots, the
+`mcp_servers` overrides, and the co-author trailer (ADR-0059).
+
+Exit codes: 0 committed, 2 invalid input or configuration, 3 no changes, 4 path violation,
+5 commit or pre-commit gate failure; any other code is Codex CLI's own exit status.
+
+Options:
+  --codex PATH                Codex executable (default: `codex` on PATH)
+  --forge PATH                forge executable for the MCP gateway (default: `forge` on PATH;
+                              required, by either route, for tasks with use_mcp_tools)
+  --model NAME                model to request
+  --local-provider PROVIDER   ollama or lmstudio; implies --oss
+  --writable-dir PATH         extra sandbox write root (repeatable, must be absolute)
+  --respect-user-config       load the operator's ~/.codex/config.toml
+  --dry-run                   print the instructions and command, run nothing
+  --self-test                 check the Codex-specific policy and the shared prompt fixture
+"""
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+import tomllib
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import bridge_kit
+
+BRIDGE_PATH = "scripts/agents/codex-bridge"
+AGENT_NAME = "Codex CLI"
+CO_AUTHOR = "Codex <noreply@openai.com>"
+
+# The only sandbox mode this bridge will use. `read-only` cannot do the work and `danger-full-access`
+# is not a policy (ADR-0059).
+SANDBOX_MODE = "workspace-write"
+LOCAL_PROVIDERS = ("ollama", "lmstudio")
+# Flags that must never reach the argv: Codex-managed worktrees fight AgentForge's ownership
+# (ADR-0056), and the bypass flags discard the sandbox and the hook trust check entirely.
+FORBIDDEN_FLAGS = (
+    "--worktree",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--dangerously-bypass-hook-trust",
+)
+
+
+def instructions(task, message_file, writable_roots, mcp=False, scripts=False):
+    roots = "\n".join(f"- {root}" for root in writable_roots)
+    return f"""You are the implementer for AgentForge task {task['task_id']} (milestone {task['milestone_id']}, role {task['primary_role']}).
+You are running headless inside this task's isolated Git worktree. The current directory is the repository root.
+
+## Goal
+{task['goal']}
+
+## Non-goals
+{bridge_kit.bullets(task['non_goals'])}
+
+## You may change only these paths
+{bridge_kit.bullets(task['allowed_paths'], 'no paths are writable')}
+
+## Never change these paths
+{bridge_kit.bullets(task['forbidden_paths'])}
+
+## Expected outputs
+{bridge_kit.bullets(task['expected_outputs'])}
+
+## Evidence requirements
+{bridge_kit.bullets(task['evidence_requirements'])}
+
+## Required gates
+{bridge_kit.bullets(task['required_gates'])}
+
+## Your sandbox
+Codex runs your commands inside a sandbox. Reads are allowed everywhere; writes are allowed only in
+the current working root and in these additional roots:
+{roots}
+A write anywhere else fails with `Read-only file system` and a non-zero status. That includes
+`$CARGO_HOME`: an already-cached dependency needs only reads, but fetching an uncached one needs the
+operator to grant that directory, and network access is granted only for tasks that hold it. If a
+command fails this way, do not try to work around the sandbox or write elsewhere; report it and
+continue with what you can do inside the allowed paths.
+
+## How to work
+1. Read AGENTS.md, PROJECT_STATE.md, and the active plan named in .plans/ACTIVE (if present) before
+   changing anything, and follow the repository's conventions, its plan boundary, and its
+   documentation style.
+2. Change only the allowed paths above. Any change outside them makes the whole run fail, and
+   nothing is committed.
+3. Add or update tests for the behavior you change.
+4. Run `./scripts/gate.sh full` and fix every failure it reports. Never weaken tests, lints, or
+   checks to make them pass.
+5. Do not commit, push, reset, or check out branches. The bridge commits your work after verifying
+   the path boundary, and the repository's pre-commit hook re-runs the gate on that commit.
+6. When you are done, write a detailed commit message to {message_file}: a conventional-commit
+   subject line (for example `feat(scope): ...`), a blank line, then a body that explains what
+   changed, why, and the evidence (tests added, gate results). Do not include Co-Authored-By
+   trailers.
+7. Finish with a short plain-text summary of what you changed and how you verified it.
+""" + ("""- You may run files inside your allowed paths directly (for example `./scripts/x --self-test`, or
+  `python3 scripts/x`), so run the tests you write for scripts, not only cargo tests.
+""" if scripts else "") + ("""8. You have AgentForge's task tools (the `agentforge` MCP server): `task_contract` shows exactly
+   what this task may change, `check_changes` judges your current changes against it, and
+   `run_gate` runs one of the task's required gates. Call `check_changes` before you finish and fix
+   anything it reports outside the task's scope. Every call is recorded.
+""" if mcp else "")
+
+
+def toml_override(key, value):
+    """A single `-c key=value` override, validated as TOML before it is passed.
+
+    Codex parses the value as TOML and falls back to a literal string when that fails, so a
+    malformed override would silently become the wrong kind of value. Round-tripping it through
+    `tomllib` here turns that into exit 2.
+    """
+    rendered = f"{key}={json.dumps(value)}"
+    try:
+        parsed = tomllib.loads(rendered)
+    except tomllib.TOMLDecodeError as error:
+        raise bridge_kit.BridgeError(f"cannot render a TOML override for {key}: {error}") from error
+    node = parsed
+    for part in key.split("."):
+        node = node[part]
+    if node != value:
+        raise bridge_kit.BridgeError(f"TOML override for {key} did not round-trip")
+    return rendered
+
+
+def mcp_overrides(task, forge, scratch, worktree, root):
+    """Codex `-c` overrides for the MCP gateway, or none for tasks without use_mcp_tools."""
+    serve = bridge_kit.mcp_server_arguments(
+        task, forge, Path(scratch) / "contract.txt", worktree, root
+    )
+    if serve is None:
+        return []
+    return [
+        "-c",
+        toml_override("mcp_servers.agentforge.command", str(forge)),
+        "-c",
+        toml_override("mcp_servers.agentforge.args", serve),
+    ]
+
+
+def writable_roots(scratch, target, extra):
+    """The sandbox's granted roots: the scratch directory, the assigned target directory, and any
+    operator-supplied roots. Nothing is granted implicitly beyond these."""
+    roots = [str(scratch)]
+    if target:
+        roots.append(str(target))
+    roots.extend(str(path) for path in extra)
+    seen, ordered = set(), []
+    for root in roots:
+        if root not in seen:
+            seen.add(root)
+            ordered.append(root)
+    return ordered
+
+
+def build_command(
+    *,
+    codex,
+    task,
+    scratch,
+    target,
+    extra_roots=(),
+    model=None,
+    local_provider=None,
+    respect_user_config=False,
+    cwd=None,
+    mcp_args=(),
+):
+    """The exact `codex exec` argv (ADR-0059). Instructions are not in it; they go on stdin."""
+    if local_provider is not None and local_provider not in LOCAL_PROVIDERS:
+        raise bridge_kit.BridgeError(
+            f"unknown local provider {local_provider!r}; use one of {', '.join(LOCAL_PROVIDERS)}"
+        )
+    roots = writable_roots(scratch, target, extra_roots)
+    command = [
+        codex,
+        "exec",
+        "-C",
+        str(cwd or Path.cwd()),
+        "-s",
+        SANDBOX_MODE,
+        "-c",
+        'approval_policy="never"',
+    ]
+    for root in roots:
+        command += ["--add-dir", root]
+    if "use_network" in task["capabilities"]:
+        command += ["-c", "sandbox_workspace_write.network_access=true"]
+    command += list(mcp_args)
+    if model:
+        command += ["-m", model]
+    if local_provider is not None:
+        command += ["--oss", "--local-provider", local_provider]
+    command += [
+        "-o",
+        str(Path(scratch) / "last-message.txt"),
+        "--ephemeral",
+        "--color",
+        "never",
+    ]
+    if not respect_user_config:
+        command.append("--ignore-user-config")
+    command.append("-")
+    for flag in FORBIDDEN_FLAGS:
+        if flag in command:
+            raise bridge_kit.BridgeError(f"refusing to pass {flag}")
+    if command.count("-s") != 1 or SANDBOX_MODE not in command:
+        raise bridge_kit.BridgeError("the sandbox mode must be set exactly once")
+    return command
+
+
+def read_summary(scratch, stdout):
+    """Codex's own final message when it wrote one, else the process output."""
+    last = Path(scratch) / "last-message.txt"
+    try:
+        text = last.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        text = ""
+    return text or stdout
+
+
+def self_test():
+    # C14: the shared fixture pins this decoder to the Rust encoder (ADR-0058).
+    task = bridge_kit.decode_prompt(bridge_kit.FIXTURE.read_bytes())
+    assert task["task_id"] == "P6-M004-T0001"
+
+    sample = {
+        "contract_version": "1",
+        "task_id": "P9-M002-T0001",
+        "milestone_id": "P9-M002",
+        "primary_role": "implementer",
+        "goal": "Multi-line goal\nwith ünïcode ✓",
+        "non_goals": ["no scope creep"],
+        "dependency_task_ids": [],
+        "allowed_paths": ["crates/example", "docs/EXAMPLE.md"],
+        "forbidden_paths": ["crates/example/secret"],
+        "capabilities": ["run_local_commands", "write_owned_paths"],
+        "required_approvals": [],
+        "required_gates": ["full"],
+        "expected_outputs": ["tests", "docs"],
+        "evidence_requirements": [],
+    }
+    scratch = "/scratch"
+    target = "/target/agentforge-worktrees/P9-M002-T0001"
+    roots = writable_roots(scratch, target, ())
+    command = build_command(
+        codex="/fake/codex", task=sample, scratch=scratch, target=target, cwd="/worktree"
+    )
+    text = instructions(sample, Path("/scratch/COMMIT_MSG"), roots)
+
+    # C1/C2: the flags that would discard AgentForge's worktree ownership or the sandbox.
+    for flag in FORBIDDEN_FLAGS:
+        assert flag not in command, f"{flag} must never be passed"
+    assert "danger-full-access" not in command, "danger-full-access is not a policy"
+    assert "read-only" not in command, "read-only cannot do the work"
+
+    # C3: the instructions are the task prompt's content and must not sit in argv.
+    assert "You are the implementer for AgentForge task" in text
+    assert not any("You are the implementer" in part for part in command), command
+    assert command[-1] == "-", "stdin is the prompt argument"
+    assert len(command) < 40, f"argv is suspiciously promotional: {command}"
+
+    # C4: the working root is the bridge's own directory, never something the agent chose.
+    assert command[command.index("-C") + 1] == "/worktree"
+
+    # C5: exactly one sandbox mode, and it is workspace-write.
+    assert command[command.index("-s") + 1] == "workspace-write"
+    assert command.count("-s") == 1
+
+    # C6: nobody is present to approve an escalation.
+    assert 'approval_policy="never"' in command
+
+    # C7: the scratch directory and the assigned target directory are writable.
+    granted = [command[index + 1] for index, part in enumerate(command) if part == "--add-dir"]
+    assert granted == [scratch, target], granted
+    assert roots == [scratch, target]
+
+    # C8: extra roots come only from flags, and $CARGO_HOME is never granted unasked.
+    extra = writable_roots(scratch, target, ("/home/operator/.cargo", "/scratch"))
+    assert extra == [scratch, target, "/home/operator/.cargo"], extra
+    assert "~/.cargo" not in command and "/home/raven/.cargo" not in command
+    assert writable_roots(scratch, None, ()) == [scratch], "no target dir in the main checkout"
+
+    # C9: network follows the capability, not the operator's convenience.
+    assert "sandbox_workspace_write.network_access=true" not in command
+    networked = build_command(
+        codex="/fake/codex",
+        task=dict(sample, capabilities=sample["capabilities"] + ["use_network"]),
+        scratch=scratch,
+        target=target,
+        cwd="/worktree",
+    )
+    assert "sandbox_workspace_write.network_access=true" in networked
+
+    # C10/C11: MCP reaches Codex through TOML overrides that parse back to the neutral argv.
+    with tempfile.TemporaryDirectory() as directory:
+        gated = dict(sample, capabilities=sample["capabilities"] + ["use_mcp_tools"])
+        assert mcp_overrides(sample, None, directory, "/wt", None) == [], "no gateway unless granted"
+        try:
+            mcp_overrides(gated, None, directory, "/wt", None)
+            raise AssertionError("use_mcp_tools without forge must refuse")
+        except bridge_kit.BridgeError:
+            pass
+        overrides = mcp_overrides(gated, "/bin/forge", directory, "/wt", "/project")
+        assert overrides[0] == "-c" and overrides[2] == "-c", overrides
+        parsed = tomllib.loads(overrides[1] + "\n" + overrides[3])
+        server = parsed["mcp_servers"]["agentforge"]
+        assert server["command"] == "/bin/forge"
+        reference = bridge_kit.mcp_server_arguments(
+            gated, "/bin/forge", Path(directory) / "contract.txt", "/wt", "/project"
+        )
+        assert server["args"] == reference, server["args"]
+        assert server["args"][:2] == ["mcp", "serve"]
+        assert toml_override("mcp_servers.agentforge.args", ['a "quoted" arg', "b"]) == (
+            'mcp_servers.agentforge.args=["a \\"quoted\\" arg", "b"]'
+        ), "values are escaped, not interpolated"
+        try:
+            toml_override("not..a..key", "x")
+            raise AssertionError("a malformed key must refuse")
+        except bridge_kit.BridgeError:
+            pass
+
+    # C12: a missing last message is not a failure.
+    with tempfile.TemporaryDirectory() as directory:
+        assert read_summary(directory, "stdout summary") == "stdout summary"
+        (Path(directory) / "last-message.txt").write_text("final message\n", encoding="utf-8")
+        assert read_summary(directory, "stdout summary") == "final message"
+
+    # C13: a local provider implies --oss, and an unknown one is refused.
+    local = build_command(
+        codex="/fake/codex",
+        task=sample,
+        scratch=scratch,
+        target=target,
+        local_provider="ollama",
+        cwd="/worktree",
+    )
+    assert "--oss" in local and local[local.index("--local-provider") + 1] == "ollama"
+    for provider in LOCAL_PROVIDERS:
+        for_local = build_command(
+            codex="/fake/codex",
+            task=sample,
+            scratch=scratch,
+            target=target,
+            local_provider=provider,
+            cwd="/worktree",
+        )
+        assert for_local[for_local.index("--local-provider") + 1] == provider
+    try:
+        build_command(
+            codex="/fake/codex",
+            task=sample,
+            scratch=scratch,
+            target=target,
+            local_provider="vllm",
+            cwd="/worktree",
+        )
+        raise AssertionError("an unknown local provider must refuse")
+    except bridge_kit.BridgeError:
+        pass
+    assert "--oss" not in command, "no local provider, no --oss"
+
+    # Hermetic by default, overridable on request.
+    assert "--ignore-user-config" in command
+    respected = build_command(
+        codex="/fake/codex",
+        task=sample,
+        scratch=scratch,
+        target=target,
+        respect_user_config=True,
+        cwd="/worktree",
+    )
+    assert "--ignore-user-config" not in respected
+    assert "--ephemeral" in command, "no rollout files"
+
+    assert "run files inside your allowed paths" in instructions(
+        sample, Path("/scratch/COMMIT_MSG"), roots, scripts=True
+    )
+    assert "check_changes" in instructions(sample, Path("/scratch/COMMIT_MSG"), roots, mcp=True)
+    assert "$CARGO_HOME" in text, "the sandbox limitation must be told to the agent"
+
+    print("codex-bridge self-test passed")
+    return bridge_kit.EXIT_COMMITTED
+
+
+def main():
+    parser = argparse.ArgumentParser(add_help=True, description="Run Codex CLI as an AgentForge agent.")
+    parser.add_argument("--codex", default="codex")
+    parser.add_argument("--forge")
+    parser.add_argument("--model")
+    parser.add_argument("--local-provider")
+    parser.add_argument("--writable-dir", action="append", default=[])
+    parser.add_argument("--respect-user-config", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
+    arguments = parser.parse_args()
+    if arguments.self_test:
+        return self_test()
+
+    for path in arguments.writable_dir:
+        if not Path(path).is_absolute():
+            print(
+                f"codex-bridge: --writable-dir must be absolute, got {path!r}",
+                file=sys.stderr,
+            )
+            return bridge_kit.EXIT_INVALID
+
+    try:
+        raw_prompt = sys.stdin.buffer.read()
+        task = bridge_kit.decode_prompt(raw_prompt)
+    except (bridge_kit.PromptError, UnicodeDecodeError) as error:
+        print(f"codex-bridge: invalid task prompt: {error}", file=sys.stderr)
+        return bridge_kit.EXIT_INVALID
+    if not task["allowed_paths"]:
+        print("codex-bridge: the task declares no allowed paths", file=sys.stderr)
+        return bridge_kit.EXIT_INVALID
+
+    with tempfile.TemporaryDirectory(prefix="agentforge-codex-") as scratch:
+        message_file = Path(scratch) / "COMMIT_MSG"
+        (Path(scratch) / "contract.txt").write_bytes(raw_prompt)
+        try:
+            mcp_args = mcp_overrides(
+                task,
+                arguments.forge or shutil.which("forge"),
+                scratch,
+                Path.cwd(),
+                bridge_kit.project_root(),
+            )
+        except bridge_kit.BridgeError as error:
+            print(f"codex-bridge: {error}", file=sys.stderr)
+            return bridge_kit.EXIT_INVALID
+
+        environment = bridge_kit.agent_environment("codex-bridge")
+        try:
+            command = build_command(
+                codex=arguments.codex,
+                task=task,
+                scratch=scratch,
+                target=environment.get("CARGO_TARGET_DIR"),
+                extra_roots=arguments.writable_dir,
+                model=arguments.model,
+                local_provider=arguments.local_provider,
+                respect_user_config=arguments.respect_user_config,
+                cwd=Path.cwd(),
+                mcp_args=mcp_args,
+            )
+        except bridge_kit.BridgeError as error:
+            print(f"codex-bridge: {error}", file=sys.stderr)
+            return bridge_kit.EXIT_INVALID
+
+        text = instructions(
+            task,
+            message_file,
+            writable_roots(scratch, environment.get("CARGO_TARGET_DIR"), arguments.writable_dir),
+            mcp=bool(mcp_args),
+            scripts=bool(bridge_kit.runnable_paths(task)),
+        )
+        if arguments.dry_run:
+            print(text)
+            print("command:", " ".join(command))
+            print("stdin:", "<instructions>")
+            return bridge_kit.EXIT_COMMITTED
+
+        print(f"codex-bridge: running Codex CLI for {task['task_id']}", flush=True)
+        agent = subprocess.run(
+            command,
+            input=text,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        sys.stdout.write(agent.stdout)
+        sys.stderr.write(agent.stderr)
+        if agent.returncode != 0:
+            print(
+                f"codex-bridge: Codex CLI exited {agent.returncode}; nothing committed",
+                file=sys.stderr,
+            )
+            return agent.returncode
+
+        paths = bridge_kit.changed_paths()
+        if not paths:
+            print("codex-bridge: the agent made no changes", file=sys.stderr)
+            return bridge_kit.EXIT_NO_CHANGES
+        violations = bridge_kit.boundary_violations(paths, task["allowed_paths"], task["forbidden_paths"])
+        if violations:
+            print("codex-bridge: changes outside the task boundary; nothing committed:", file=sys.stderr)
+            for path in violations:
+                print(f"  {path}", file=sys.stderr)
+            return bridge_kit.EXIT_PATH_VIOLATION
+        print(f"codex-bridge: committing {len(paths)} changed path(s); the pre-commit gate runs now", flush=True)
+        if (
+            bridge_kit.commit(
+                task,
+                paths,
+                message_file,
+                read_summary(scratch, agent.stdout),
+                AGENT_NAME,
+                BRIDGE_PATH,
+                arguments.model,
+                CO_AUTHOR,
+            )
+            != 0
+        ):
+            print("codex-bridge: commit or pre-commit gate failed; nothing committed", file=sys.stderr)
+            return bridge_kit.EXIT_COMMIT_FAILED
+    print("codex-bridge: committed")
+    return bridge_kit.EXIT_COMMITTED
+
+
+if __name__ == "__main__":
+    sys.exit(main())

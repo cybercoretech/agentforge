@@ -6,6 +6,17 @@ All notable AgentForge changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A Codex CLI bridge, `scripts/agents/codex-bridge`, on the shared kit. It runs `codex exec` with
+  the instructions on stdin, `-C` bound to the managed worktree, and `-s workspace-write`;
+  `--worktree` and both bypass flags are never passed, approval policy is `never`, write roots are
+  limited to the scratch directory and the assigned `CARGO_TARGET_DIR`, network follows the
+  `use_network` capability, and local models are reachable through `--local-provider`
+  (P6-M005, ADR-0059).
+- The conformance suite now covers two bridges: twenty-two end-to-end cases, with no case added for
+  Codex.
+
 ## [0.4.0] - 2026-10-27
 
 ### Added
