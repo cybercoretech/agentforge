@@ -13,6 +13,13 @@ All notable AgentForge changes are documented here. The format follows
   policy engine, forwarded unchanged, and audited, and a failing server is contained (P3-M006,
   ADR-0055).
 
+### Fixed
+
+- GitHub Actions now runs on every push to `main` and on every pull request. The workflows came in
+  with the migrated history, so GitHub never indexed their triggers: manual dispatch worked while
+  `push` and `pull_request` created no runs. Adding a fresh workflow file forced a re-index, and
+  the first push-triggered gate is green on all seven jobs (P6-M001).
+
 ## [0.3.1] - 2026-09-25
 
 The first release with an **attested SBOM**: `agentforge-0.3.1.cdx.json` lists everything built into

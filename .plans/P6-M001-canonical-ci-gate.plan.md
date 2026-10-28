@@ -1,6 +1,6 @@
 # Plan: P6-M001 — Restore the canonical CI gate
 
-Status: Approved
+Status: Complete
 Milestone: P6-M001
 Created: 2026-10-27
 
@@ -140,8 +140,19 @@ ID so the claim is checkable.
 
 ## Completion record
 
-Implementation commit:
-CI run:
-CI result:
-Completed:
-Notes:
+Implementation commit: `d6f11e3` (workflow files), `5d018b2` (registration probe), `d30c73c`
+(milestone status vocabulary)
+CI run: `40628725474` — push event on `d30c73c`
+CI result: success, seven of seven jobs
+Completed: 2026-10-27
+Notes: Modifying the existing workflow files did **not** re-register their triggers; `updated_at`
+never moved and no run appeared. Adding a brand-new workflow file to `.github/workflows/` did:
+GitHub re-indexed the whole directory, and `AgentForge CI`, `AgentForge Pages`, and the probe all
+fired from the same push. The probe was removed in `d30c73c`, after which pushes still triggered,
+so the fix is durable. `pull_request` was verified by opening and immediately closing PR #1
+(`event=pull_request` run created for `ae96cee`), and `workflow_dispatch` still runs.
+
+The same push also surfaced a latent defect in the newly live pipeline: `site-updates` accepts only
+`planned`, `active`, `complete`, `blocked`, `split`, and `superseded`, so the milestone row had to
+use `active` rather than `approved`. That failure is exactly the class of error the gate now
+catches, and it was found within minutes of restoring the trigger.

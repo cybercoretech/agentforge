@@ -22,11 +22,11 @@ No active milestone. P3-M006 — external MCP servers behind the gateway — is 
 
 ## Known issues
 
-- Canonical-repository evidence gap (ADR-0056, Phase 0): neither `ci.yml` nor `release.yml` has ever
-  run on a push here, the releases API is empty, and the `v0.3.1` tag carries only source archives.
 - Dogfooding finding 23 is open: the audit append lock is unfair and can starve a writer under
   heavy contention (seen once in CI).
 - Findings 19 and 20 are released in `v0.3.1`; `v0.3.0` workers still have them.
+- The releases API is still empty: the `v0.3.1` tag carries only source archives. Publishing a
+  verifiable `0.4.0` is P6-M003 (ADR-0056, Phase 0).
 
 ## Evidence provenance
 
@@ -34,6 +34,19 @@ The completion records below cite CI run IDs from the retired predecessor reposi
 (`darkstardevx/agentforge`). They describe work that did happen, but the IDs no longer resolve in
 any repository, so they cannot be verified from here. Records from `0.4.0` onward cite runs in
 `cybercoretech/agentforge` and are checkable (ADR-0056, Phase 0).
+
+## P6-M001 completion evidence
+
+- Approved plan: `.plans/P6-M001-canonical-ci-gate.plan.md`.
+- The workflows arrived with the migrated history, so GitHub never indexed their triggers:
+  `workflow_dispatch` ran, while `push` and `pull_request` produced no runs on any commit.
+- Modifying the workflow files did not help. Adding a fresh workflow file to `.github/workflows/`
+  forced a re-index of the directory, after which every workflow began receiving push events.
+- Commit `d30c73c` is the first push to `main` gated by CI: run `40628725474`, seven of seven jobs
+  green, with `AgentForge Pages` also green in run `40628725418`. PR #1 proved the
+  `pull_request` trigger and was closed.
+- Recording this exposed the `site-updates` status vocabulary (`planned`, `active`, `complete`,
+  `blocked`, `split`, `superseded`); the milestone row was corrected in the same commit.
 
 ## P3-M006 completion evidence
 

@@ -129,4 +129,4 @@ Status values are `planned`, `active`, `complete`, `blocked`, `split`, and `supe
 
 | ID | Status | Milestone | Acceptance signal |
 | --- | --- | --- | --- |
-| P6-M001 | active | Restore the canonical CI gate | A push to `main` creates an AgentForge CI run for that commit without manual dispatch, and it is green on all seven jobs; `pull_request` triggers likewise. |
+| P6-M001 | complete | Restore the canonical CI gate | A push to `main` creates an AgentForge CI run for that commit without manual dispatch, and it is green on all seven jobs; `pull_request` triggers likewise. |
