@@ -124,3 +124,9 @@ Status values are `planned`, `active`, `complete`, `blocked`, `split`, and `supe
 | P5-M005 | complete | Release v0.3.0 | `v0.3.0`, the first release with attested archives, is published by the workflow itself; every archive passes `sha256sum -c` and `gh attestation verify` against the tag, and the preflight patch list is now enforced. |
 | P5-M006 | complete | SBOM attestation (agent-built) | Releases ship a CycloneDX SBOM attested for every archive, verified on the uploaded assets; implemented by Claude Code through AgentForge using the MCP gateway, proven by a release rehearsal and an independent `gh attestation verify --predicate-type`. |
 | P5-M007 | complete | Release v0.3.1 | `v0.3.1`, the first release with an attested SBOM and the rehearsal's remote-worker fixes, is published by the workflow; every archive passes provenance and SBOM verification, and the two-host rehearsal passes against it. |
+
+## Phase 6 — 1.0 readiness and evidence restoration
+
+| ID | Status | Milestone | Acceptance signal |
+| --- | --- | --- | --- |
+| P6-M001 | approved | Restore the canonical CI gate | A push to `main` creates an AgentForge CI run for that commit without manual dispatch, and it is green on all seven jobs; `pull_request` triggers likewise. |
