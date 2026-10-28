@@ -12,12 +12,14 @@
 Phase A of 1.0 is in progress (ADR-0056). The shared bridge kit, the Codex CLI bridge, its
 preflight, and the OpenCode bridge are complete: bridges are thin adapters over one kit, and
 conformance — thirty-three end-to-end cases — is the price of being first-party. Provider-neutral
-`forge doctor --agents` is next (P6-M008).
+`forge doctor --agents` is in progress (P6-M008).
 
 ## Active milestone
 
-No active milestone. P6-M007 — the OpenCode bridge and its worktree guard — is complete.
-`v0.4.0` is the latest release, and every completed milestone is tagged `milestone/<ID>`.
+P6-M008 — provider-neutral `forge doctor --agents` — is approved and awaiting implementation. The
+plan is `.plans/P6-M008-forge-doctor-agents.plan.md`; ADR-0062 records the static, no-execution,
+no-provider-detection boundary. `v0.4.0` is the latest release, and every completed milestone is
+tagged `milestone/<ID>`.
 
 ## Known issues
 

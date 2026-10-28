@@ -67,3 +67,4 @@ ADRs are permanent numbered records of consequential design decisions.
 | ADR-0059 | Accepted | Codex CLI as a first-party bridge |
 | ADR-0060 | Accepted | Bridge preflight, and a corrected Codex sandbox finding |
 | ADR-0061 | Accepted | OpenCode as a policy-configured bridge, and the worktree guard |
+| ADR-0062 | Accepted | Provider-neutral agent checks in `forge doctor` |
