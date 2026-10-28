@@ -5,13 +5,16 @@ AgentForge starts this bridge inside the task's verified worktree with a cleared
 writes an `agentforge-task-prompt-v1` document to stdin. The bridge:
 
 1. decodes the prompt strictly (malformed input exits 2 before any agent runs);
-2. turns it into natural-language instructions and runs `codex exec` in the worktree;
-3. checks every changed path against the task's allowed and forbidden paths;
-4. commits the changes, so the repository's own pre-commit hook and gate run on them.
+2. runs a preflight over the executable, the flags it is about to pass, the sandbox runtime, a
+   configured local provider, and every write root (ADR-0060);
+3. turns the prompt into natural-language instructions and runs `codex exec` in the worktree;
+4. checks every changed path against the task's allowed and forbidden paths;
+5. commits the changes, so the repository's own pre-commit hook and gate run on them.
 
-Steps 1, 3, and 4 come from `scripts/agents/bridge_kit.py` (ADR-0058). This file holds only what is
+Steps 1, 4, and 5 come from `scripts/agents/bridge_kit.py` (ADR-0058). This file holds only what is
 Codex-specific: the instructions, the command line, the sandbox policy and its granted roots, the
-`mcp_servers` overrides, and the co-author trailer (ADR-0059).
+`mcp_servers` overrides, the preflight, the failure hints, and the co-author trailer (ADR-0059,
+ADR-0060).
 
 Exit codes: 0 committed, 2 invalid input or configuration, 3 no changes, 4 path violation,
 5 commit or pre-commit gate failure; any other code is Codex CLI's own exit status.
@@ -24,17 +27,24 @@ Options:
   --local-provider PROVIDER   ollama or lmstudio; implies --oss
   --writable-dir PATH         extra sandbox write root (repeatable, must be absolute)
   --respect-user-config       load the operator's ~/.codex/config.toml
-  --dry-run                   print the instructions and command, run nothing
+  --preflight / --no-preflight
+                              verify the environment before the agent starts (default: on)
+  --dry-run                   print the instructions and command, run nothing, skip the preflight
   --self-test                 check the Codex-specific policy and the shared prompt fixture
 """
 
 import argparse
+import contextlib
+import io
 import json
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import tomllib
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -56,6 +66,30 @@ FORBIDDEN_FLAGS = (
     "--dangerously-bypass-approvals-and-sandbox",
     "--dangerously-bypass-hook-trust",
 )
+
+# Preflight surfaces (ADR-0060). The long form is what `codex exec --help` documents, so flag drift
+# is caught against the same text an operator can read.
+SHORT_FLAGS = {
+    "-C": "--cd",
+    "-s": "--sandbox",
+    "-c": "--config",
+    "-m": "--model",
+    "-o": "--output-last-message",
+}
+CODEX_IDENTITY = re.compile(r"^codex-cli\s+(\d+)\.(\d+)\.(\d+)")
+MIN_OLLAMA_VERSION = (0, 13, 4)
+PROVIDER_ENDPOINTS = {
+    # Codex's built-in providers use fixed ports and reject overrides, so preflight probes the
+    # endpoint Codex will actually call.
+    "ollama": ("http://localhost:11434/api/version", MIN_OLLAMA_VERSION),
+    "lmstudio": ("http://localhost:1234/v1/models", None),
+}
+PREFLIGHT_TIMEOUT = 30
+PROVIDER_TIMEOUT = 3
+
+
+class PreflightFailure(bridge_kit.BridgeError):
+    """The environment cannot run the sandboxed Codex command this bridge builds."""
 
 
 def instructions(task, message_file, writable_roots, mcp=False, scripts=False):
@@ -235,6 +269,257 @@ def read_summary(scratch, stdout):
     return text or stdout
 
 
+# --------------------------------------------------------------------------------------------------
+# Preflight (ADR-0060). Every check names one cause and one remedy and raises PreflightFailure,
+# which main maps to exit 2 before the agent starts.
+# --------------------------------------------------------------------------------------------------
+
+
+def _tail(text, limit=400):
+    text = (text or "").strip()
+    return text[-limit:] if text else "(no output)"
+
+
+def parse_version(text):
+    """The first `major.minor.patch` in a version string, or None."""
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", text or "")
+    return tuple(int(part) for part in match.groups()) if match else None
+
+
+def probe_version(codex, environment=None):
+    """Run `codex --version`. Returns the version line; raises when the executable cannot answer."""
+    try:
+        result = subprocess.run(
+            [codex, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=PREFLIGHT_TIMEOUT,
+            env=environment,
+        )
+    except FileNotFoundError as error:
+        raise PreflightFailure(
+            f"cannot run {codex!r}: not found; install Codex CLI or pass --codex PATH"
+        ) from error
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise PreflightFailure(f"`{codex} --version` did not run: {error}") from error
+    if result.returncode != 0:
+        raise PreflightFailure(
+            f"`{codex} --version` exited {result.returncode}: {_tail(result.stderr)}"
+        )
+    version = (result.stdout or result.stderr).strip()
+    if not version:
+        raise PreflightFailure(f"`{codex} --version` printed nothing; is {codex!r} Codex CLI?")
+    return version
+
+
+def required_help_flags(command):
+    """The long flags the built argv relies on, derived from the argv itself."""
+    required = set()
+    for token in command:
+        if token in SHORT_FLAGS:
+            required.add(SHORT_FLAGS[token])
+        elif token.startswith("--"):
+            required.add(token)
+    return sorted(required)
+
+
+def probe_help(codex, command, environment=None):
+    """Assert that this Codex still documents every flag the command passes, and the sandbox mode."""
+    try:
+        result = subprocess.run(
+            [codex, "exec", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=PREFLIGHT_TIMEOUT,
+            env=environment,
+        )
+    except FileNotFoundError as error:
+        raise PreflightFailure(
+            f"cannot run {codex!r}: not found; install Codex CLI or pass --codex PATH"
+        ) from error
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise PreflightFailure(f"`{codex} exec --help` did not run: {error}") from error
+    if result.returncode != 0:
+        raise PreflightFailure(
+            f"`{codex} exec --help` exited {result.returncode}: {_tail(result.stderr)}"
+        )
+    text = (result.stdout or "") + "\n" + (result.stderr or "")
+    missing = [flag for flag in required_help_flags(command) if flag not in text]
+    if missing:
+        raise PreflightFailure(
+            "the installed Codex CLI no longer documents "
+            + ", ".join(missing)
+            + "; the bridge passes these, so upgrade or pin a supported Codex version"
+        )
+    if SANDBOX_MODE not in text:
+        raise PreflightFailure(
+            f"the installed Codex CLI no longer accepts sandbox mode {SANDBOX_MODE!r}; "
+            "the bridge will not run without its sandbox"
+        )
+
+
+def sandbox_runtime_problem(version, platform=None, which=None, runner=None):
+    """A reason the Linux sandbox cannot start for a real Codex, or None.
+
+    The probe only applies to an executable that identifies as Codex: a stand-in used by the
+    conformance suite has no bubblewrap requirement of its own (and CI does not install it).
+    """
+    platform = sys.platform if platform is None else platform
+    which = shutil.which if which is None else which
+    runner = subprocess.run if runner is None else runner
+    if not platform.startswith("linux") or not CODEX_IDENTITY.match(version.strip()):
+        return None
+    binary = which("bwrap")
+    if not binary:
+        return (
+            "Codex's Linux sandbox needs bubblewrap, but `bwrap` is not on PATH; "
+            "install bubblewrap (for example `sudo apt install bubblewrap`)"
+        )
+    try:
+        result = runner(
+            [binary, "--unshare-user", "--ro-bind", "/", "/", "--", "/bin/true"],
+            capture_output=True,
+            text=True,
+            timeout=PREFLIGHT_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"bubblewrap is present at {binary} but could not be run: {error}"
+    if result.returncode != 0:
+        return (
+            "bubblewrap is present but cannot create a sandbox; enable unprivileged user "
+            f"namespaces or check its setuid mode: {_tail(result.stderr)}"
+        )
+    return None
+
+
+def provider_problem(provider, payload):
+    """A reason this local-provider answer is unusable, or None."""
+    _, minimum = PROVIDER_ENDPOINTS[provider]
+    if minimum is None:
+        return None
+    stated = str(payload.get("version", ""))
+    version = parse_version(stated)
+    if version is None:
+        return f"{provider} did not report a usable version (got {stated!r}); upgrade it"
+    if version < minimum:
+        wanted = ".".join(str(part) for part in minimum)
+        return (
+            f"{provider} {stated} is older than {wanted}; Codex refuses to use it, "
+            f"so upgrade {provider} first"
+        )
+    return None
+
+
+def probe_provider(provider, opener=None):
+    """Probe the endpoint Codex will actually use, with a short timeout."""
+    url = PROVIDER_ENDPOINTS[provider][0]
+    opener = urllib.request.urlopen if opener is None else opener
+    try:
+        with opener(url, timeout=PROVIDER_TIMEOUT) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        detail = getattr(error, "reason", error)
+        remedy = (
+            "start it with `ollama serve`"
+            if provider == "ollama"
+            else "start LM Studio's local server"
+        )
+        raise PreflightFailure(f"{provider} is not reachable at {url} ({detail}); {remedy}") from error
+    problem = provider_problem(provider, payload)
+    if problem:
+        raise PreflightFailure(problem)
+
+
+def create_target(target):
+    """Create the assigned Cargo target directory; a missing --add-dir loses build output."""
+    if not target:
+        return
+    try:
+        Path(target).mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise PreflightFailure(f"cannot create the assigned target directory {target}: {error}") from error
+
+
+def prepare_write_roots(roots, target):
+    """Create the target root and prove every root accepts a write."""
+    create_target(target)
+    for root in roots:
+        path = Path(root)
+        if root != target and not path.is_dir():
+            raise PreflightFailure(
+                f"write root {root} does not exist; create it or pass an existing --writable-dir"
+            )
+        try:
+            with tempfile.NamedTemporaryFile(dir=path, prefix=".agentforge-preflight-", delete=True):
+                pass
+        except OSError as error:
+            raise PreflightFailure(f"write root {root} is not writable: {error}") from error
+
+
+def run_preflight(*, codex, command, roots, target, local_provider, environment=None, forge=None):
+    """The ordered preflight. Returns the Codex version it saw."""
+    version = probe_version(codex, environment)
+    print(f"codex-bridge: preflight: {version}", flush=True)
+    probe_help(codex, command, environment)
+    problem = sandbox_runtime_problem(version)
+    if problem:
+        raise PreflightFailure(problem)
+    if local_provider in PROVIDER_ENDPOINTS:
+        probe_provider(local_provider)
+    prepare_write_roots(roots, target)
+    if forge and not shutil.which(forge):
+        raise PreflightFailure(f"forge executable {forge!r} was not found; pass --forge PATH")
+    print(
+        "codex-bridge: preflight: executable, flags, sandbox, provider, and write roots OK",
+        flush=True,
+    )
+    return version
+
+
+# One actionable line for the failures an operator actually hits. The agent's own output is never
+# replaced, and the exit code stays Codex's.
+HINTS = (
+    (
+        ("no running ollama server detected",),
+        "start the local provider (`ollama serve`) or point the task at one that is running",
+    ),
+    (
+        ("is too old",),
+        "upgrade Ollama to 0.13.4 or newer; Codex refuses older servers",
+    ),
+    (
+        ("wire_api",),
+        'this Codex no longer accepts that wire API; use `wire_api = "responses"` or drop the override',
+    ),
+    (
+        ("bwrap:",),
+        "Codex's Linux sandbox could not start in bubblewrap; install bubblewrap and enable "
+        "unprivileged user namespaces, or fix the sandbox permission profile",
+    ),
+    (
+        ("read-only file system",),
+        "a write was blocked outside the granted roots; grant the directory with --writable-dir",
+    ),
+    (
+        ("not logged in", "401 unauthorized", "missing bearer", "authentication"),
+        "Codex has no credentials for this provider; run `codex login` or set its API key",
+    ),
+    (
+        ("/v1/responses",),
+        "the local endpoint does not speak the Responses API; use Ollama 0.13.4+ or an LM Studio "
+        "Responses-compatible model",
+    ),
+)
+
+
+def hint_for(stdout, stderr):
+    text = f"{stdout or ''}\n{stderr or ''}".lower()
+    for needles, hint in HINTS:
+        if any(needle in text for needle in needles):
+            return hint
+    return None
+
+
 def self_test():
     # C14: the shared fixture pins this decoder to the Rust encoder (ADR-0058).
     task = bridge_kit.decode_prompt(bridge_kit.FIXTURE.read_bytes())
@@ -395,11 +680,233 @@ def self_test():
     assert "check_changes" in instructions(sample, Path("/scratch/COMMIT_MSG"), roots, mcp=True)
     assert "$CARGO_HOME" in text, "the sandbox limitation must be told to the agent"
 
+    # C18-C25: preflight and hints (ADR-0060). These run without Codex by using a stand-in that
+    # answers `--version` and `exec --help`, the same interface the real executable offers.
+    help_body = (
+        "Usage: codex exec [OPTIONS] [PROMPT]\n"
+        "  -c, --config <key=value>\n"
+        "  -m, --model <MODEL>\n"
+        "      --oss\n"
+        "      --local-provider <OSS_PROVIDER>\n"
+        "  -s, --sandbox <SANDBOX_MODE>  [possible values: read-only, workspace-write, "
+        "danger-full-access]\n"
+        "  -C, --cd <DIR>\n"
+        "      --add-dir <DIR>\n"
+        "      --ephemeral\n"
+        "      --ignore-user-config\n"
+        "      --color <COLOR>\n"
+        "  -o, --output-last-message <FILE>\n"
+    )
+
+    with tempfile.TemporaryDirectory() as temporary:
+        base = Path(temporary)
+
+        def fake(name, version="fake-codex 9.9.9", help_text=help_body, version_status=0):
+            script = base / name
+            script.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "arguments = sys.argv[1:]\n"
+                "if arguments == ['--version']:\n"
+                f"    print({version!r})\n"
+                f"    sys.exit({version_status})\n"
+                "if arguments[:1] == ['exec'] and '--help' in arguments[1:]:\n"
+                f"    print({help_text!r})\n"
+                "    sys.exit(0)\n"
+                "sys.exit(0)\n",
+                encoding="utf-8",
+            )
+            script.chmod(0o755)
+            return str(script)
+
+        target_dir = base / "target" / "nested"
+        fake_command = build_command(
+            codex=fake("codex-ok"),
+            task=sample,
+            scratch=temporary,
+            target=str(target_dir),
+            cwd=temporary,
+        )
+        version = run_preflight(
+            codex=fake("codex-ok"),
+            command=fake_command,
+            roots=[temporary, str(target_dir)],
+            target=str(target_dir),
+            local_provider=None,
+        )
+        assert version == "fake-codex 9.9.9", version
+        assert target_dir.is_dir(), "preflight must create the assigned target directory"
+
+        flags = required_help_flags(fake_command)
+        for flag in (
+            "--cd",
+            "--sandbox",
+            "--config",
+            "--add-dir",
+            "--output-last-message",
+            "--ephemeral",
+            "--color",
+            "--ignore-user-config",
+        ):
+            assert flag in flags, (flag, flags)
+        local_flags = required_help_flags(
+            build_command(
+                codex="/fake/codex",
+                task=sample,
+                scratch=temporary,
+                target=None,
+                local_provider="ollama",
+                model="stub-model",
+                cwd=temporary,
+            )
+        )
+        for flag in ("--oss", "--local-provider", "--model"):
+            assert flag in local_flags, (flag, local_flags)
+
+        try:
+            probe_version(fake("codex-exit", version_status=3))
+            raise AssertionError("a non-zero --version must refuse")
+        except PreflightFailure as error:
+            assert "exited 3" in str(error), error
+        try:
+            probe_version(str(base / "absent"))
+            raise AssertionError("a missing executable must refuse")
+        except PreflightFailure as error:
+            assert "not found" in str(error), error
+
+        try:
+            probe_help(
+                fake("codex-drift", help_text=help_body.replace("      --add-dir <DIR>\n", "")),
+                fake_command,
+            )
+            raise AssertionError("flag drift must refuse")
+        except PreflightFailure as error:
+            assert "--add-dir" in str(error), error
+        try:
+            probe_help(
+                fake("codex-mode", help_text=help_body.replace("workspace-write, ", "")),
+                fake_command,
+            )
+            raise AssertionError("a missing sandbox mode must refuse")
+        except PreflightFailure as error:
+            assert "workspace-write" in str(error), error
+
+        # The runtime probe applies to a Codex identity on Linux only.
+        assert (
+            sandbox_runtime_problem("conformance-stub 1.0.0", platform="linux", which=lambda _: None)
+            is None
+        )
+        assert (
+            sandbox_runtime_problem("codex-cli 0.165.0", platform="darwin", which=lambda _: None)
+            is None
+        )
+        missing_bwrap = sandbox_runtime_problem(
+            "codex-cli 0.165.0", platform="linux", which=lambda _: None
+        )
+        assert missing_bwrap and "bubblewrap" in missing_bwrap
+
+        class RuntimeResult:
+            def __init__(self, returncode, stderr=""):
+                self.returncode = returncode
+                self.stderr = stderr
+
+        sandbox_ok = sandbox_runtime_problem(
+            "codex-cli 0.165.0",
+            platform="linux",
+            which=lambda _: "/usr/bin/bwrap",
+            runner=lambda *args, **kwargs: RuntimeResult(0),
+        )
+        assert sandbox_ok is None, sandbox_ok
+        broken = sandbox_runtime_problem(
+            "codex-cli 0.165.0",
+            platform="linux",
+            which=lambda _: "/usr/bin/bwrap",
+            runner=lambda *args, **kwargs: RuntimeResult(1, "namespace unavailable"),
+        )
+        assert broken and "user namespaces" in broken
+
+        # Local-provider versions are compared, not guessed at.
+        assert parse_version("0.20.0") == (0, 20, 0)
+        assert parse_version("no version here") is None
+        assert provider_problem("ollama", {"version": "0.13.3"}) is not None
+        assert provider_problem("ollama", {"version": "0.13.4"}) is None
+        assert provider_problem("ollama", {"version": "0.20.0"}) is None
+        assert provider_problem("ollama", {}) is not None
+        assert provider_problem("lmstudio", {}) is None
+
+        class Answer:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exception):
+                return False
+
+            def read(self):
+                return json.dumps(self.payload).encode()
+
+        probe_provider("ollama", opener=lambda *args, **kwargs: Answer({"version": "0.20.0"}))
+
+        def refuse(*args, **kwargs):
+            raise urllib.error.URLError("connection refused")
+
+        try:
+            probe_provider("ollama", opener=refuse)
+            raise AssertionError("an unreachable provider must refuse")
+        except PreflightFailure as error:
+            assert "ollama serve" in str(error), error
+        try:
+            probe_provider("ollama", opener=lambda *args, **kwargs: Answer({"version": "0.10.0"}))
+            raise AssertionError("an old provider must refuse")
+        except PreflightFailure as error:
+            assert "0.13.4" in str(error), error
+
+        # A missing non-target root is refused; the target root is created by create_target.
+        try:
+            prepare_write_roots([temporary, str(base / "missing")], None)
+            raise AssertionError("a missing write root must refuse")
+        except PreflightFailure as error:
+            assert "does not exist" in str(error), error
+        prepare_write_roots([temporary], None)
+        deep = base / "deep" / "target"
+        create_target(str(deep))
+        assert deep.is_dir()
+
+        # Hints name the next step; unknown output produces none.
+        assert "ollama serve" in hint_for("", "No running Ollama server detected.")
+        assert "0.13.4" in hint_for("", "Ollama 0.10.0 is too old.")
+        assert "wire_api" in hint_for("", '`wire_api = "chat"` is no longer supported.')
+        assert "bubblewrap" in hint_for("", "bwrap: execvp /x/codex: No such file or directory")
+        assert "--writable-dir" in hint_for("", "touch: cannot touch 'x': Read-only file system")
+        assert "credentials" in hint_for("", "Error: not logged in")
+        assert "Responses API" in hint_for("", "unexpected status 404 Not Found, url: /v1/responses")
+        assert hint_for("", "everything is fine") is None
+
+        parser = build_parser()
+        assert parser.parse_args([]).preflight is True
+        assert parser.parse_args(["--no-preflight"]).preflight is False
+        assert parser.parse_args(["--dry-run"]).preflight is True
+
+        # C11: a dry run must not require the executable to exist or run the preflight.
+        saved = (sys.argv, sys.stdin, sys.stdout)
+        sys.argv = ["codex-bridge", "--codex", str(base / "absent"), "--dry-run"]
+        sys.stdin = io.TextIOWrapper(io.BytesIO(bridge_kit.encode_prompt(sample)))
+        sink = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(sink):
+                code = main()
+        finally:
+            sys.argv, sys.stdin, sys.stdout = saved
+        assert code == bridge_kit.EXIT_COMMITTED, code
+        assert "command:" in sink.getvalue(), "the dry run must print the command"
+
     print("codex-bridge self-test passed")
     return bridge_kit.EXIT_COMMITTED
 
 
-def main():
+def build_parser():
     parser = argparse.ArgumentParser(add_help=True, description="Run Codex CLI as an AgentForge agent.")
     parser.add_argument("--codex", default="codex")
     parser.add_argument("--forge")
@@ -407,9 +914,26 @@ def main():
     parser.add_argument("--local-provider")
     parser.add_argument("--writable-dir", action="append", default=[])
     parser.add_argument("--respect-user-config", action="store_true")
+    parser.add_argument(
+        "--preflight",
+        dest="preflight",
+        action="store_true",
+        default=True,
+        help="verify the executable, flags, sandbox, provider, and write roots first (default)",
+    )
+    parser.add_argument(
+        "--no-preflight",
+        dest="preflight",
+        action="store_false",
+        help="skip the environment checks (the agent's own failure is still reported)",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--self-test", action="store_true")
-    arguments = parser.parse_args()
+    return parser
+
+
+def main():
+    arguments = build_parser().parse_args()
     if arguments.self_test:
         return self_test()
 
@@ -434,10 +958,11 @@ def main():
     with tempfile.TemporaryDirectory(prefix="agentforge-codex-") as scratch:
         message_file = Path(scratch) / "COMMIT_MSG"
         (Path(scratch) / "contract.txt").write_bytes(raw_prompt)
+        forge = arguments.forge or shutil.which("forge")
         try:
             mcp_args = mcp_overrides(
                 task,
-                arguments.forge or shutil.which("forge"),
+                forge,
                 scratch,
                 Path.cwd(),
                 bridge_kit.project_root(),
@@ -447,12 +972,14 @@ def main():
             return bridge_kit.EXIT_INVALID
 
         environment = bridge_kit.agent_environment("codex-bridge")
+        target = environment.get("CARGO_TARGET_DIR")
+        roots = writable_roots(scratch, target, arguments.writable_dir)
         try:
             command = build_command(
                 codex=arguments.codex,
                 task=task,
                 scratch=scratch,
-                target=environment.get("CARGO_TARGET_DIR"),
+                target=target,
                 extra_roots=arguments.writable_dir,
                 model=arguments.model,
                 local_provider=arguments.local_provider,
@@ -467,7 +994,7 @@ def main():
         text = instructions(
             task,
             message_file,
-            writable_roots(scratch, environment.get("CARGO_TARGET_DIR"), arguments.writable_dir),
+            roots,
             mcp=bool(mcp_args),
             scripts=bool(bridge_kit.runnable_paths(task)),
         )
@@ -477,17 +1004,45 @@ def main():
             print("stdin:", "<instructions>")
             return bridge_kit.EXIT_COMMITTED
 
+        if arguments.preflight:
+            try:
+                run_preflight(
+                    codex=arguments.codex,
+                    command=command,
+                    roots=roots,
+                    target=target,
+                    local_provider=arguments.local_provider,
+                    environment=environment,
+                    forge=forge if mcp_args else None,
+                )
+            except bridge_kit.BridgeError as error:
+                print(f"codex-bridge: preflight failed: {error}", file=sys.stderr)
+                return bridge_kit.EXIT_INVALID
+        else:
+            try:
+                create_target(target)
+            except bridge_kit.BridgeError as error:
+                print(f"codex-bridge: {error}", file=sys.stderr)
+                return bridge_kit.EXIT_INVALID
+
         print(f"codex-bridge: running Codex CLI for {task['task_id']}", flush=True)
-        agent = subprocess.run(
-            command,
-            input=text,
-            capture_output=True,
-            text=True,
-            env=environment,
-        )
+        try:
+            agent = subprocess.run(
+                command,
+                input=text,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+        except OSError as error:
+            print(f"codex-bridge: cannot run {arguments.codex!r}: {error}", file=sys.stderr)
+            return bridge_kit.EXIT_INVALID
         sys.stdout.write(agent.stdout)
         sys.stderr.write(agent.stderr)
         if agent.returncode != 0:
+            hint = hint_for(agent.stdout, agent.stderr)
+            if hint:
+                print(f"codex-bridge: hint: {hint}", file=sys.stderr)
             print(
                 f"codex-bridge: Codex CLI exited {agent.returncode}; nothing committed",
                 file=sys.stderr,

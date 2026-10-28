@@ -56,6 +56,9 @@ jobs:
       - name: Conformance-test real-agent bridges
         run: python3 scripts/agents/bridge_conformance.py
 
+      - name: End-to-end test Codex bridge
+        run: python3 scripts/agents/codex_e2e.py
+
       - name: Self-test milestone tagger
         run: ./scripts/tag-milestone --self-test
 

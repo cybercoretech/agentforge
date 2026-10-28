@@ -140,7 +140,8 @@ so a Codex-created one would sit outside the verification and integration path. 
 
 Codex brings its own sandbox, which reads everything and writes only to granted roots. The bridge
 grants the scratch directory (so the agent can write its commit message) and the task's assigned
-`CARGO_TARGET_DIR`. Writes outside those roots fail with `Read-only file system` and a non-zero
+`CARGO_TARGET_DIR`, and it creates the target directory before the run: a fresh linked worktree does
+not have one yet. Writes outside those roots fail with `Read-only file system` and a non-zero
 status, so a blocked command is visible to the agent instead of silently dropped.
 
 `$CARGO_HOME` is **not** granted implicitly. A warm registry needs only reads — `cargo metadata` and
@@ -181,6 +182,23 @@ a run that wrote outside the allowed paths exited 4 and committed nothing. The e
 `bwrap: execvp ...: No such file or directory` came from a degenerate synthetic permission profile,
 not from the install path.
 
+**Preflight.** Before the agent starts, the bridge verifies the executable (`--version`), every long
+flag the command it built actually uses (against `codex exec --help`, plus `workspace-write`), the
+Linux sandbox runtime for a real Codex (`bwrap` and a working user namespace), a configured local
+provider (Ollama 0.13.4 or newer on `11434`, LM Studio on `1234`), and every write root. A failure
+exits 2 with one named cause and one remedy, before any model token is spent. `--no-preflight` skips
+the checks; `--dry-run` skips them too, so instructions can be read on a machine without Codex.
+
+The bridge never falls back to an unsandboxed run. When Codex itself fails, the bridge adds one
+actionable hint (missing or old Ollama, a removed wire API, a bubblewrap failure, a blocked write,
+missing credentials, an endpoint without the Responses API) and otherwise leaves the exit status and
+output untouched.
+
+The reusable proof is `scripts/agents/codex_e2e.py`: it starts a stub Responses-API endpoint on
+`11434`, drives the real binary through the bridge to a commit and to an exit-4 refusal, and prints
+`SKIP` with exit 0 when Codex is not installed. If a local Ollama already owns `11434`, it skips
+rather than interfering.
+
 ### Working on a bridge
 
 ```text
@@ -189,6 +207,7 @@ python3 scripts/agents/bridge_kit.py --self-test       # the shared kit, includi
 ./scripts/agents/codex-bridge --self-test              # Codex's sandbox and argv policy
 python3 scripts/agents/bridge_conformance.py           # every registered bridge, end to end
 python3 scripts/agents/bridge_conformance.py --list    # which bridges are registered
+python3 scripts/agents/codex_e2e.py                    # real Codex, or SKIP when it is absent
 ```
 
 The conformance suite drives each bridge against a stub agent in a throwaway Git repository and

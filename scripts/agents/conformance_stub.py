@@ -13,6 +13,11 @@ behaves according to environment variables:
 
 It also models the honest behavior of a real agent: it writes its commit message to the scratch
 path the bridge told it about, which it finds by scanning its arguments and stdin.
+
+It also answers the two questions a bridge preflight asks (`--version` and `exec --help`), with the
+same long flags and sandbox mode a real Codex documents, so the conformance suite exercises the
+preflight instead of bypassing it (ADR-0060). It identifies as itself, not as Codex, so a
+Codex-specific sandbox-runtime probe is not applied to it.
 """
 
 import os
@@ -21,6 +26,34 @@ import sys
 from pathlib import Path
 
 MESSAGE_PATH = re.compile(r"(/\S*?/COMMIT_MSG)")
+
+VERSION = "conformance-stub 1.0.0"
+
+HELP = """Usage: conformance-stub exec [OPTIONS] [PROMPT]
+
+  -c, --config <key=value>
+  -m, --model <MODEL>
+      --oss
+      --local-provider <OSS_PROVIDER>
+  -s, --sandbox <SANDBOX_MODE>  [possible values: read-only, workspace-write, danger-full-access]
+  -C, --cd <DIR>
+      --add-dir <DIR>
+      --ephemeral
+      --ignore-user-config
+      --color <COLOR>
+  -o, --output-last-message <FILE>
+"""
+
+
+def answer_preflight(arguments):
+    """Returns an exit code when the invocation is a preflight question, else None."""
+    if arguments == ["--version"]:
+        print(VERSION)
+        return 0
+    if arguments[:1] == ["exec"] and any(part in ("--help", "-h") for part in arguments[1:]):
+        print(HELP)
+        return 0
+    return None
 
 
 def find_message_path(arguments, stdin_text):
@@ -33,6 +66,9 @@ def find_message_path(arguments, stdin_text):
 
 def main():
     arguments = sys.argv[1:]
+    preflight = answer_preflight(arguments)
+    if preflight is not None:
+        return preflight
     stdin_text = ""
     if not sys.stdin.isatty():
         try:

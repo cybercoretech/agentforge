@@ -8,6 +8,14 @@ All notable AgentForge changes are documented here. The format follows
 
 ### Added
 
+- The Codex bridge runs a preflight before the agent starts: it checks the executable, every long
+  flag the built command uses, the Linux sandbox runtime for a real Codex, a configured local
+  provider, and every write root, and exits 2 with one named remedy (P6-M006, ADR-0060).
+  `--no-preflight` skips it; `--dry-run` never runs it. The bridge also creates the assigned
+  `CARGO_TARGET_DIR` before handing it to Codex, and maps common Codex failures to one actionable
+  hint without changing the exit-code contract.
+- `scripts/agents/codex_e2e.py` drives the real Codex binary through the bridge to a sandboxed
+  commit and to an exit-4 path refusal, and prints `SKIP` with exit 0 when Codex is absent.
 - A Codex CLI bridge, `scripts/agents/codex-bridge`, on the shared kit. It runs `codex exec` with
   the instructions on stdin, `-C` bound to the managed worktree, and `-s workspace-write`;
   `--worktree` and both bypass flags are never passed, approval policy is `never`, write roots are
@@ -16,6 +24,12 @@ All notable AgentForge changes are documented here. The format follows
   (P6-M005, ADR-0059).
 - The conformance suite now covers two bridges: twenty-two end-to-end cases, with no case added for
   Codex.
+
+### Fixed
+
+- The record no longer claims that no live Codex turn could be run or that a mise-installed Codex
+  cannot sandbox itself. Both were artifacts of a degenerate test profile; a real turn now runs
+  through the bridge, and the checked-in harness repeats it (P6-M006, ADR-0060).
 
 ## [0.4.0] - 2026-10-27
 

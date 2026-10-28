@@ -69,7 +69,7 @@ BRIDGES = [
         "agent_flag": "--codex",
         "extra_args": [],
     },
-    # P6-M006 adds OpenCode here. Each bridge must pass unchanged.
+    # P6-M007 adds OpenCode here. Each bridge must pass unchanged.
 ]
 
 
