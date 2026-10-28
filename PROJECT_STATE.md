@@ -9,9 +9,11 @@
 
 ## Current phase
 
-Self-hosting. AgentForge milestones can now be implemented by a real agent (Claude Code) through
-AgentForge itself, with hermetic gates, audited evidence, and operator review. Next candidates: more
-agent-built milestones, Phase 4 remote-worker wiring, the P3 tool gateway, and P5 signed releases.
+Evidence restoration for 1.0 (ADR-0056, Phase 0). Self-hosting is proven: milestones are
+implemented by a real agent (Claude Code) through AgentForge itself, with hermetic gates, audited
+evidence, and operator review. Phase 0 restores verifiable evidence on the canonical repository — a
+CI gate on `main`, and a published release with binaries, SBOM, and provenance — before further 1.0
+capability work is approved. Phase A then adds a shared bridge kit with Codex CLI and OpenCode.
 
 ## Active milestone
 
@@ -20,9 +22,18 @@ No active milestone. P3-M006 — external MCP servers behind the gateway — is 
 
 ## Known issues
 
+- Canonical-repository evidence gap (ADR-0056, Phase 0): neither `ci.yml` nor `release.yml` has ever
+  run on a push here, the releases API is empty, and the `v0.3.1` tag carries only source archives.
 - Dogfooding finding 23 is open: the audit append lock is unfair and can starve a writer under
   heavy contention (seen once in CI).
 - Findings 19 and 20 are released in `v0.3.1`; `v0.3.0` workers still have them.
+
+## Evidence provenance
+
+The completion records below cite CI run IDs from the retired predecessor repository
+(`darkstardevx/agentforge`). They describe work that did happen, but the IDs no longer resolve in
+any repository, so they cannot be verified from here. Records from `0.4.0` onward cite runs in
+`cybercoretech/agentforge` and are checkable (ADR-0056, Phase 0).
 
 ## P3-M006 completion evidence
 

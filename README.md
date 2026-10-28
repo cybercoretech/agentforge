@@ -7,9 +7,13 @@ It treats models as replaceable workers—not as the source of truth. The durabl
 the repository: plans, task contracts, permissions, isolated worktrees, quality-gate evidence,
 CI observations, audit records, and human decisions. 🧭
 
-> **Status:** `0.3.1-alpha` · latest release
-> ([v0.3.1](https://github.com/cybercoretech/agentforge/releases/tag/v0.3.1), attested builds and SBOM) · alpha: evolving
+> **Status:** `0.3.1-alpha` · latest tagged release
+> ([v0.3.1](https://github.com/cybercoretech/agentforge/releases/tag/v0.3.1)) · alpha: evolving
 > APIs, local-first, not for unattended production use
+>
+> **Known gap:** `v0.3.1` is a migrated tag. On this repository it carries only GitHub's automatic
+> source archives — no binaries, SBOM, or attestations. Publishing a verifiable `0.4.0` is the
+> first task for 1.0 ([ADR-0056](docs/adr/ADR-0056-agentforge-1.0-strategy.md)).
 >
 > **Canonical repository:** [`cybercoretech/agentforge`](https://github.com/cybercoretech/agentforge).
 > Its earlier history (up to `976c4f9`) came over from the old `darkstardevx/agentforge` copy,
@@ -135,8 +139,9 @@ The current repository provides:
 - Versioned local agent profiles with bounded direct arguments and explicit environment values. 🤖
 - An optional loopback-only `forged` runtime with bounded `forge daemon` lifecycle commands that
   handles long agent runs, stays responsive to `status`, and refuses unsafe stops mid-run. ⚙️
-- Transport-neutral remote-worker foundations: lease contracts, durable lease state, and
-  deterministic dispatch planning, with no remote execution authority yet. 🛰️
+- Remote workers over the GhostPort channel: lease contracts, durable lease state, deterministic
+  dispatch planning, same-host and two-host execution, supervision across coordinator outages, and
+  exact-SHA import through a quarantine ref that is verified before any local side effect. 🛰️
 - Explicit `forge worktree` commands for safe task worktree preparation and retirement. 🌳
 
 The repository also contains reusable Rust crates for scheduling, policy, orchestration, intake,
@@ -620,9 +625,12 @@ paths and restored reliable CI:
 
 Candidate next milestones, each still requiring its own approved plan:
 
-- a two-machine remote-worker run over a real network (P4);
-- external MCP servers behind the gateway's capability map (P3);
-- remote (HTTP) MCP servers behind the gateway (P3), and the real two-machine run (P4).
+- restore verifiable evidence on the canonical repository: a CI gate on `main` and a `0.4.0`
+  release whose archives carry binaries, an SBOM, and provenance (ADR-0056, Phase 0);
+- a shared agent-bridge kit, with Codex CLI and OpenCode as the first additional bridges and local
+  inference as an acceptance criterion (ADR-0056, Phase A);
+- remote (HTTP) MCP servers behind the gateway (P3);
+- a two-machine remote-worker run over a real network (P4).
 
 ## Contributing 🤝
 
