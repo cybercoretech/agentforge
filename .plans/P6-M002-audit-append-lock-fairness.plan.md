@@ -1,6 +1,6 @@
 # Plan: P6-M002 — Audit append lock fairness
 
-Status: Approved
+Status: Complete
 Milestone: P6-M002
 Created: 2026-10-27
 
@@ -140,8 +140,13 @@ current time, so no `rand` dependency is added.
 
 ## Completion record
 
-Implementation commit:
-CI run:
-CI result:
-Completed:
-Notes:
+Implementation commit: `d928d96`
+CI run: `40630130098` — push event on `d928d96`
+CI result: success, seven of seven jobs (the first Linux job failed on a `rustup` download timeout,
+not on the change, and passed on re-run)
+Completed: 2026-10-27
+Notes: The wait predicate is split out as a pure function and covered by six unit tests, so the
+policy is testable without sleeping. The regression test `a_wedged_lock_is_reported_and_never_stolen`
+takes the full five seconds on purpose and asserts that the waiter does not remove the lock.
+`concurrent_writers_keep_one_verified_chain` passed 20 consecutive local runs, and the workspace
+suite went from 333 to 349 tests.

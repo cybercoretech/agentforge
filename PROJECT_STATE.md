@@ -22,8 +22,6 @@ No active milestone. P3-M006 — external MCP servers behind the gateway — is 
 
 ## Known issues
 
-- Dogfooding finding 23 is open: the audit append lock is unfair and can starve a writer under
-  heavy contention (seen once in CI).
 - Findings 19 and 20 are released in `v0.3.1`; `v0.3.0` workers still have them.
 - The releases API is still empty: the `v0.3.1` tag carries only source archives. Publishing a
   verifiable `0.4.0` is P6-M003 (ADR-0056, Phase 0).
@@ -34,6 +32,17 @@ The completion records below cite CI run IDs from the retired predecessor reposi
 (`darkstardevx/agentforge`). They describe work that did happen, but the IDs no longer resolve in
 any repository, so they cannot be verified from here. Records from `0.4.0` onward cite runs in
 `cybercoretech/agentforge` and are checkable (ADR-0056, Phase 0).
+
+## P6-M002 completion evidence
+
+- Approved plan: `.plans/P6-M002-audit-append-lock-fairness.plan.md`; ADR-0057 amends ADR-0047.
+- Implementation commit: `d928d96`. CI `40630130098` is green on all seven jobs after a re-run of a
+  `rustup` download timeout on the Linux job.
+- The append-lock wait is now progress-based: a waiter resets its stuck timer whenever the lock
+  changes hands, a lock unchanged for five seconds is still reported with the operator message and
+  never stolen, and the total wait is capped at sixty seconds with jittered backoff.
+- Tests: six unit tests for the wait predicate, fingerprint, and jitter; a wedged-lock regression
+  test; and twenty consecutive passes of the contention test. Finding 23 is resolved.
 
 ## P6-M001 completion evidence
 

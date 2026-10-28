@@ -130,4 +130,4 @@ Status values are `planned`, `active`, `complete`, `blocked`, `split`, and `supe
 | ID | Status | Milestone | Acceptance signal |
 | --- | --- | --- | --- |
 | P6-M001 | complete | Restore the canonical CI gate | A push to `main` creates an AgentForge CI run for that commit without manual dispatch, and it is green on all seven jobs; `pull_request` triggers likewise. |
-| P6-M002 | active | Audit append lock fairness | A waiter keeps waiting while the lock changes hands, a lock unchanged for five seconds is still reported rather than stolen, total waiting is bounded, and the contention test passes 20 consecutive runs. |
+| P6-M002 | complete | Audit append lock fairness | A waiter keeps waiting while the lock changes hands, a lock unchanged for five seconds is still reported rather than stolen, total waiting is bounded, and the contention test passes 20 consecutive runs. |

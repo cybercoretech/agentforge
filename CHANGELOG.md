@@ -15,6 +15,10 @@ All notable AgentForge changes are documented here. The format follows
 
 ### Fixed
 
+- The audit append lock no longer starves a writer under contention. Waiting is tied to observed
+  progress instead of a single five-second deadline: a waiter resets its stuck timer whenever the
+  lock changes hands, a holder that leaves the lock unchanged for five seconds is still reported and
+  never stolen, and backoff is jittered (ADR-0057, dogfooding finding 23).
 - GitHub Actions now runs on every push to `main` and on every pull request. The workflows came in
   with the migrated history, so GitHub never indexed their triggers: manual dispatch worked while
   `push` and `pull_request` created no runs. Adding a fresh workflow file forced a re-index, and
