@@ -8,6 +8,22 @@ All notable AgentForge changes are documented here. The format follows
 
 ### Added
 
+- An OpenCode bridge, `scripts/agents/opencode-bridge`, on the shared kit (P6-M007, ADR-0061). It
+  runs `opencode run --standalone --format json --agent <unique>` with the instructions on stdin and
+  the whole policy in `OPENCODE_CONFIG_CONTENT`, which OpenCode appends last; project configuration
+  and project plugin discovery are disabled, no rule is `ask`, `.env` files and non-file tools are
+  denied, `shell` follows `run_local_commands`, network follows `use_network`, and a task holding
+  `use_mcp_tools` is refused with a cause and a remedy instead of running without its tools. The
+  bridge is policy-configured, not sandboxed, and the documentation says so.
+- The OpenCode preflight verifies the executable, the flags the built command uses, the generated
+  agent, the guard marker, project isolation (with a planted probe plugin), the model catalog, and
+  the write roots, and exits 2 with one cause and one remedy. `--no-preflight` skips it; `--dry-run`
+  never runs it.
+- `scripts/agents/opencode_e2e.py` drives the real OpenCode binary against a streaming stub provider
+  to a commit, an exit-4 refusal, a failed forced worktree removal, and a provider rejection with a
+  credential hint; it prints `SKIP` with exit 0 when OpenCode is absent.
+- The conformance suite now covers three bridges: thirty-three end-to-end cases, with no case added
+  for OpenCode.
 - The Codex bridge runs a preflight before the agent starts: it checks the executable, every long
   flag the built command uses, the Linux sandbox runtime for a real Codex, a configured local
   provider, and every write root, and exits 2 with one named remedy (P6-M006, ADR-0060).
@@ -27,6 +43,10 @@ All notable AgentForge changes are documented here. The format follows
 
 ### Fixed
 
+- The OpenCode bridge cannot delete the worktree it runs in. `opencode_worktree_remove` ignores
+  permission rules and deleted an active linked worktree with `force: true`; a bridge-owned plugin
+  now removes the three worktree tools before the model sees them, and the preflight fails if the
+  plugin did not load (P6-M007, ADR-0061).
 - The record no longer claims that no live Codex turn could be run or that a mise-installed Codex
   cannot sandbox itself. Both were artifacts of a degenerate test profile; a real turn now runs
   through the bridge, and the checked-in harness repeats it (P6-M006, ADR-0060).

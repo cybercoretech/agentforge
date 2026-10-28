@@ -69,7 +69,12 @@ BRIDGES = [
         "agent_flag": "--codex",
         "extra_args": [],
     },
-    # P6-M007 adds OpenCode here. Each bridge must pass unchanged.
+    {
+        "name": "opencode",
+        "path": ROOT / "scripts" / "agents" / "opencode-bridge",
+        "agent_flag": "--opencode",
+        "extra_args": [],
+    },
 ]
 
 

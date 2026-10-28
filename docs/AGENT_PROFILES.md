@@ -199,15 +199,93 @@ The reusable proof is `scripts/agents/codex_e2e.py`: it starts a stub Responses-
 `SKIP` with exit 0 when Codex is not installed. If a local Ollama already owns `11434`, it skips
 rather than interfering.
 
+### The OpenCode bridge
+
+```text
+# .forge/agents/opencode.conf
+version=1
+executable=/usr/bin/python3
+argument=/path/to/agentforge/scripts/agents/opencode-bridge
+argument=--opencode
+argument=/absolute/path/to/opencode
+env.PATH=/usr/bin:/bin:/home/operator/.local/bin
+env.HOME=/home/operator
+timeout_ms=3600000
+max_output_bytes=8388608
+```
+
+The bridge runs `opencode run --standalone --format json --agent agentforge-<hex>` with the
+instructions on stdin. `--standalone` is mandatory: without it `run` talks to the background
+service, whose configuration, plugins, and permissions are not the bridge's. The bridge parses the
+NDJSON stream: `text` parts become the summary, `tool_use` events are reported, an `error` event is
+a failure even when the process exits 0, and a line that is not JSON is forwarded as written.
+
+**Policy, not a sandbox.** OpenCode 2.2.0 has no operating-system sandbox. Isolation is an ordered
+list of permission rules (`action`, `resource`, `effect`; last match wins), and the bridge builds
+that list itself in `OPENCODE_CONFIG_CONTENT`, a virtual config source OpenCode appends last
+(ADR-0061). The worktree cannot add, remove, or reorder a rule: the bridge also sets
+`OPENCODE_CONFIG_PROJECT_DISABLE=true`, which turns off project `opencode.json(c)` and project
+`.opencode/plugins` discovery, and its preflight proves both for the installed build.
+
+The generated agent starts with a catch-all deny; allows `read`, `glob`, `grep`, and `edit` inside
+the worktree; denies `.env` and `.env.*` for both reading and editing; denies `question`, `skill`,
+`subagent`, the browser, and Code Mode; and denies every `external_directory` except the scratch
+directory and the assigned `CARGO_TARGET_DIR`. No rule is `ask`, because a headless run has nobody
+to answer. Code Mode is denied because its `execute` tool documents that `fetch` is available to the
+scripted runtime, which would grant network access outside `webfetch`/`websearch` and outside the
+`use_network` capability.
+
+`shell` follows `run_local_commands`: a task without the capability gets no shell at all, and a task
+with it may run commands, with a few destructive Git commands denied as defence in depth. This is
+the honest difference from Codex — `shell` runs as the operator and no rule list confines it, so the
+capability stays a human decision. `webfetch` and `websearch` follow `use_network`.
+
+**The worktree guard.** `opencode_worktree_remove` is not gated by permission rules. During probing
+it deleted the active linked worktree with `force: true`; a catch-all deny, `worktree*` actions, and
+`tool.use` policies all left it working. The bridge therefore loads
+`scripts/agents/opencode-plugins/agentforge-guard/`, a local plugin directory that removes
+`opencode_worktree_create`, `_list`, and `_remove` through OpenCode's tool transform and records its
+before/after inventory to a marker file. With the guard loaded, the same forced call fails with
+`No tool named "opencode_worktree_remove" is currently available`, and the worktree survives. The
+preflight requires an `after` record that omits the three tools, so a future build that stops
+honouring the transform fails before the agent starts.
+
+**MCP is refused in this milestone.** A configured MCP server connects, but its tools are absent
+from the first headless request and appear only after a step, and `opencode mcp list` cannot even
+report the server. Rather than run without `check_changes` and `run_gate`, the bridge exits 2 for a
+task holding `use_mcp_tools`, names the measured cause, and points at the Claude Code or Codex
+bridge. Enabling it later is a separate milestone with its own evidence.
+
+**Preflight.** Before the agent starts, the bridge verifies the executable (`--version`), every long
+flag the built command uses (against `run --help`), the generated agent in
+`debug agents --standalone` with `mode: primary`, the guard marker, project isolation (a planted
+project plugin must not load and no config source may live inside the worktree), the model in
+`models --standalone` when `--model` is given, and that the scratch and target roots are writable. A
+failure exits 2 with one cause and one remedy. `--no-preflight` skips the checks; `--dry-run` skips
+them too.
+
+The reusable proof is `scripts/agents/opencode_e2e.py`: it serves a streaming OpenAI-compatible stub
+provider on an ephemeral port, writes a throwaway XDG config that registers it, and drives the real
+binary to a commit, to an exit-4 path refusal, through a forced worktree removal that fails, and to a
+rejected provider request with one credential hint. It prints `SKIP` with exit 0 when OpenCode is
+absent. The stub is not a model, and this harness does not claim a live-model turn.
+
+**Verified limits.** The data directory is not isolated, because it holds OpenCode's auth database;
+sessions therefore accumulate in the operator's OpenCode store, and the run uses the operator's
+credentials. `snapshots` is off so OpenCode writes no snapshot store into the worktree, and the
+title agent is disabled so a run spends no auxiliary request naming its session.
+
 ### Working on a bridge
 
 ```text
 python3 scripts/agents/bridge_kit.py --self-test       # the shared kit, including the fixture
 ./scripts/agents/claude-code-bridge --self-test        # the bridge's own policy
 ./scripts/agents/codex-bridge --self-test              # Codex's sandbox and argv policy
+./scripts/agents/opencode-bridge --self-test           # OpenCode's policy, config, and decoder
 python3 scripts/agents/bridge_conformance.py           # every registered bridge, end to end
 python3 scripts/agents/bridge_conformance.py --list    # which bridges are registered
 python3 scripts/agents/codex_e2e.py                    # real Codex, or SKIP when it is absent
+python3 scripts/agents/opencode_e2e.py                 # real OpenCode, or SKIP when it is absent
 ```
 
 The conformance suite drives each bridge against a stub agent in a throwaway Git repository and

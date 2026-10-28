@@ -1,0 +1,1101 @@
+#!/usr/bin/env python3
+"""Run OpenCode as an AgentForge agent.
+
+AgentForge starts this bridge inside the task's verified worktree with a cleared environment and
+writes an `agentforge-task-prompt-v1` document to stdin. The bridge:
+
+1. decodes the prompt strictly (malformed input exits 2 before any agent runs);
+2. refuses a task whose surface OpenCode 2.2.0 cannot honour (see below);
+3. builds the whole policy itself, in `OPENCODE_CONFIG_CONTENT`, so the worktree cannot loosen it;
+4. runs a preflight that proves the build honours project isolation and that the guard plugin loaded
+   and removed the worktree tools (ADR-0061);
+5. runs `opencode run --standalone --format json --agent <unique>` with the instructions on stdin;
+6. checks every changed path against the task's allowed and forbidden paths;
+7. commits the changes, so the repository's own pre-commit hook and gate run on them.
+
+Steps 1, 6, and 7 come from `scripts/agents/bridge_kit.py` (ADR-0058). This file holds only what is
+OpenCode-specific: the instructions, the permission policy, the config document, the argv, the NDJSON
+decoder, the preflight, the failure hints, and the guard plugin it loads.
+
+OpenCode 2.2.0 has **no OS sandbox**. Isolation here is a list of ordered permission rules, last match
+wins, and the documentation says so (ADR-0056, ADR-0061). `shell` is the part the policy cannot
+confine: it runs as the operator, and the `run_local_commands` capability is the human grant.
+
+A task holding `use_mcp_tools` is refused with exit 2. In 2.2.0 a configured MCP server connects but
+its tools are absent from the first headless request, and Code Mode (`execute`) exposes `fetch`
+outside the permission rules. Running without the task tools would be a capability loss disguised as
+success.
+
+Exit codes: 0 committed, 2 invalid input or configuration, 3 no changes, 4 path violation,
+5 commit or pre-commit gate failure; any other code is OpenCode's own exit status.
+
+Options:
+  --opencode PATH     OpenCode executable (default: `opencode` on PATH)
+  --model MODEL       provider/model[#variant] to request
+  --preflight / --no-preflight
+                      verify the environment before the agent starts (default: on)
+  --dry-run           print the instructions and command, run nothing, skip the preflight
+  --self-test         check the policy, config document, decoder, and preflight rules
+"""
+
+import argparse
+import json
+import re
+import secrets
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import bridge_kit
+
+BRIDGE_PATH = "scripts/agents/opencode-bridge"
+AGENT_NAME = "OpenCode"
+CO_AUTHOR = None
+PLUGIN_DIR = Path(__file__).resolve().parent / "opencode-plugins" / "agentforge-guard"
+GUARDED_TOOLS = ("opencode_worktree_create", "opencode_worktree_list", "opencode_worktree_remove")
+# Flags that would change which permissions, config, or session apply. `--auto` auto-approves
+# non-denied actions, `--server` talks to a server whose config is not ours, and the session flags
+# continue work the bridge did not see.
+FORBIDDEN_FLAGS = (
+    "--auto",
+    "--continue",
+    "-c",
+    "--session",
+    "-s",
+    "--fork",
+    "--file",
+    "-f",
+    "--title",
+    "--thinking",
+    "--server",
+)
+MCP_REFUSAL = (
+    "this task holds use_mcp_tools, but OpenCode 2.2.0 cannot give a headless run its MCP tools "
+    "(they are absent from the first request, and Code Mode's `execute` exposes `fetch` outside the "
+    "permission rules); run this task with the Claude Code or Codex bridge, or wait for an OpenCode "
+    "build with a stable MCP surface"
+)
+IDENTITY = re.compile(r"^opencode\s+v?(\d+)\.(\d+)\.(\d+)")
+PREFLIGHT_TIMEOUT = 120
+HINTS = (
+    (
+        ("credit balance", "insufficient", "401", "unauthorized", "invalid api key", "no credentials"),
+        "the provider has no usable credentials; run `opencode auth login` or set its key",
+    ),
+    (
+        ("you must provide a message",),
+        "the prompt never reached stdin; this is a bridge defect, report it with the task id",
+    ),
+    (
+        ("no model selected", "model not found", "unknown model", "no provider"),
+        "no usable model is selected; pass --model provider/model or configure a default",
+    ),
+    (
+        ("provider.invalid-request", "provider request failed"),
+        "the provider rejected the request; check --model and the endpoint configuration",
+    ),
+    (
+        ("permission denied",),
+        "the policy refused the action; widen the task's paths or capabilities, not the bridge",
+    ),
+)
+
+
+class PreflightFailure(bridge_kit.BridgeError):
+    """The environment cannot run the policy-configured OpenCode command this bridge builds."""
+
+
+def instructions(task, message_file, scratch, target, network=False, shell=False, mcp=False):
+    roots = "\n".join(f"- {root}" for root in [scratch] + ([target] if target else []))
+    return f"""You are the implementer for AgentForge task {task['task_id']} (milestone {task['milestone_id']}, role {task['primary_role']}).
+You are running headless inside this task's isolated Git worktree. The current directory is the repository root.
+
+## Goal
+{task['goal']}
+
+## Non-goals
+{bridge_kit.bullets(task['non_goals'])}
+
+## You may change only these paths
+{bridge_kit.bullets(task['allowed_paths'], 'no paths are writable')}
+
+## Never change these paths
+{bridge_kit.bullets(task['forbidden_paths'])}
+
+## Expected outputs
+{bridge_kit.bullets(task['expected_outputs'])}
+
+## Evidence requirements
+{bridge_kit.bullets(task['evidence_requirements'])}
+
+## Required gates
+{bridge_kit.bullets(task['required_gates'])}
+
+## Your permissions
+This run is configured by ordered permission rules, not by an operating-system sandbox. Reads,
+searches, and edits are allowed inside this worktree and denied everywhere else. These are the only
+additional roots you may read and write:
+{roots}
+
+Secrets are denied: `.env` files cannot be read or edited. Questions, skills, subagents, the browser,
+and Code Mode are denied, because nobody is present to answer and the bridge will not run a scripted
+tool surface outside its rules. The worktree management tools are removed from this run entirely.
+
+{'You may run local commands, because this task holds `run_local_commands`. The permission rules deny a few destructive Git commands, but a shell is not confined to the worktree: do not treat it as a sandbox, and do not use it to reach files outside the allowed paths.' if shell else 'You may not run shell commands in this task. Use the file tools only.'}
+
+{'Network access is allowed, because this task holds `use_network`.' if network else 'Network access is denied. Do not try to fetch anything.'}
+
+## How to work
+1. Read AGENTS.md, PROJECT_STATE.md, and the active plan named in .plans/ACTIVE (if present) before
+   changing anything, and follow the repository's conventions, its plan boundary, and its
+   documentation style.
+2. Change only the allowed paths above. Any change outside them makes the whole run fail, and
+   nothing is committed.
+3. Add or update tests for the behavior you change.
+4. Run `./scripts/gate.sh full` and fix every failure it reports. Never weaken tests, lints, or
+   checks to make them pass.
+5. Do not commit, push, reset, or check out branches. The bridge commits your work after verifying
+   the path boundary, and the repository's pre-commit hook re-runs the gate on that commit.
+6. When you are done, write a detailed commit message to {message_file}: a conventional-commit
+   subject line (for example `feat(scope): ...`), a blank line, then a body that explains what
+   changed, why, and the evidence (tests added, gate results). Do not include Co-Authored-By
+   trailers.
+7. Finish with a short plain-text summary of what you changed and how you verified it.
+"""
+
+
+def permissions(task, scratch, target, linked=False):
+    """The ordered OpenCode rules. Last match wins, so the catch-all comes first (ADR-0061)."""
+    rules = [
+        # Nothing is allowed by omission. No rule asks: a headless run has nobody to answer.
+        {"action": "*", "resource": "*", "effect": "deny"},
+        # The worktree itself, including files the agent creates.
+        {"action": "read", "resource": "*", "effect": "allow"},
+        {"action": "glob", "resource": "*", "effect": "allow"},
+        {"action": "grep", "resource": "*", "effect": "allow"},
+        {"action": "edit", "resource": "*", "effect": "allow"},
+        # Secrets never reach the model and never enter a commit.
+        {"action": "read", "resource": "*.env", "effect": "deny"},
+        {"action": "read", "resource": "*.env.*", "effect": "deny"},
+        {"action": "edit", "resource": "*.env", "effect": "deny"},
+        {"action": "edit", "resource": "*.env.*", "effect": "deny"},
+        # No interactive prompts, injected instructions, delegated agents, or scripted runtime.
+        {"action": "question", "resource": "*", "effect": "deny"},
+        {"action": "skill", "resource": "*", "effect": "deny"},
+        {"action": "subagent", "resource": "*", "effect": "deny"},
+        {"action": "execute", "resource": "*", "effect": "deny"},
+        {"action": "browser", "resource": "*", "effect": "deny"},
+        # Everything outside the worktree, except the two roots the bridge grants below.
+        {"action": "external_directory", "resource": "*", "effect": "deny"},
+        {"action": "external_directory", "resource": f"{scratch}/*", "effect": "allow"},
+        {"action": "read", "resource": f"{scratch}/*", "effect": "allow"},
+        {"action": "edit", "resource": f"{scratch}/*", "effect": "allow"},
+    ]
+    if target:
+        rules += [
+            {"action": "external_directory", "resource": f"{target}/*", "effect": "allow"},
+            {"action": "read", "resource": f"{target}/*", "effect": "allow"},
+            {"action": "edit", "resource": f"{target}/*", "effect": "allow"},
+        ]
+    if "run_local_commands" in task["capabilities"]:
+        rules.append({"action": "shell", "resource": "*", "effect": "allow"})
+        for command in (
+            "git push*",
+            "git remote*",
+            "git reset*",
+            "git clean*",
+            "git checkout*",
+            "git switch*",
+            "git commit*",
+            "git clone*",
+            "git fetch*",
+            "git pull*",
+        ):
+            rules.append({"action": "shell", "resource": command, "effect": "deny"})
+    else:
+        rules.append({"action": "shell", "resource": "*", "effect": "deny"})
+    network = "use_network" in task["capabilities"]
+    for action in ("webfetch", "websearch"):
+        rules.append({"action": action, "resource": "*", "effect": "allow" if network else "deny"})
+    return rules
+
+
+def new_agent_id():
+    """A unique agent id, so a global agent of the same name can never lend its rules."""
+    return f"agentforge-{secrets.token_hex(6)}"
+
+
+def config_document(task, agent_id, scratch, target):
+    """The bridge-owned config, passed in OPENCODE_CONFIG_CONTENT (appended last by OpenCode)."""
+    return {
+        "$schema": "https://opencode.ai/config.json",
+        # OpenCode's own snapshot store is not part of the AgentForge worktree.
+        "snapshots": False,
+        "plugins": [str(PLUGIN_DIR)],
+        "agents": {
+            agent_id: {
+                "description": f"AgentForge task implementer ({task['task_id']})",
+                "mode": "primary",
+                "permissions": permissions(task, scratch, target),
+            },
+            # The title agent would spend an auxiliary model request naming the session.
+            "title": {"disabled": True},
+        },
+    }
+
+
+def build_command(opencode, agent_id, model=None):
+    """The exact `opencode run` argv. Instructions go on stdin, never into the argv."""
+    command = [opencode, "run", "--standalone", "--format", "json", "--agent", agent_id]
+    if model:
+        command += ["--model", model]
+    for flag in FORBIDDEN_FLAGS:
+        if flag in command:
+            raise bridge_kit.BridgeError(f"refusing to pass {flag}")
+    if command.count("--agent") != 1:
+        raise bridge_kit.BridgeError("the agent id must be set exactly once")
+    return command
+
+
+def decode_stream(text):
+    """Parse OpenCode's NDJSON: summary text, tool events, error messages, and other output.
+
+    A `text` event carries the whole text of its part, and OpenCode may re-emit the same text under
+    a new part id at the end of a run, so parts are keyed by id (last value wins) and an exact repeat
+    of the previous part is dropped.
+    """
+    summary, tools, errors, other = [], [], [], []
+    order = []
+    parts = {}
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            other.append(line)
+            continue
+        if not isinstance(event, dict):
+            other.append(line)
+            continue
+        kind = event.get("type")
+        if kind == "text":
+            part = event.get("part") or {}
+            if isinstance(part.get("text"), str):
+                identifier = part.get("id") or f"text-{len(order)}"
+                if identifier not in parts:
+                    order.append(identifier)
+                parts[identifier] = part["text"]
+        elif kind == "tool_use":
+            part = event.get("part") or {}
+            state = part.get("state") or {}
+            tools.append(
+                {
+                    "tool": part.get("tool"),
+                    "status": state.get("status"),
+                    "error": state.get("error"),
+                }
+            )
+        elif kind == "error":
+            error = event.get("error") or {}
+            message = error.get("message") or "OpenCode reported an error"
+            errors.append(str(message))
+        # step_start, step_finish, and any later event type are structured bookkeeping the bridge
+        # does not need to print. Lines that are not JSON at all are forwarded as written.
+    for identifier in order:
+        value = parts[identifier]
+        if not summary or summary[-1] != value:
+            summary.append(value)
+    return "".join(summary).strip(), tools, errors, other
+
+
+def hint_for(text):
+    haystack = (text or "").lower()
+    for needles, hint in HINTS:
+        if any(needle in haystack for needle in needles):
+            return hint
+    return None
+
+
+# --------------------------------------------------------------------------------------------------
+# Preflight (ADR-0061). Every check names one cause and one remedy and raises PreflightFailure,
+# which main maps to exit 2 before the agent starts.
+# --------------------------------------------------------------------------------------------------
+
+
+def _tail(text, limit=400):
+    text = (text or "").strip()
+    return text[-limit:] if text else "(no output)"
+
+
+def required_help_flags(command):
+    """The long flags the built argv relies on, derived from the argv itself."""
+    return sorted({token for token in command if token.startswith("--")})
+
+
+def probe_version(opencode, environment=None):
+    try:
+        result = subprocess.run(
+            [opencode, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=PREFLIGHT_TIMEOUT,
+            env=environment,
+        )
+    except FileNotFoundError as error:
+        raise PreflightFailure(
+            f"cannot run {opencode!r}: not found; install OpenCode or pass --opencode PATH"
+        ) from error
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise PreflightFailure(f"`{opencode} --version` did not run: {error}") from error
+    if result.returncode != 0:
+        raise PreflightFailure(
+            f"`{opencode} --version` exited {result.returncode}: {_tail(result.stderr)}"
+        )
+    version = (result.stdout or result.stderr).strip()
+    if not version:
+        raise PreflightFailure(f"`{opencode} --version` printed nothing; is {opencode!r} OpenCode?")
+    return version
+
+
+def probe_help(opencode, command, environment=None):
+    try:
+        result = subprocess.run(
+            [opencode, "run", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=PREFLIGHT_TIMEOUT,
+            env=environment,
+        )
+    except FileNotFoundError as error:
+        raise PreflightFailure(
+            f"cannot run {opencode!r}: not found; install OpenCode or pass --opencode PATH"
+        ) from error
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise PreflightFailure(f"`{opencode} run --help` did not run: {error}") from error
+    if result.returncode != 0:
+        raise PreflightFailure(
+            f"`{opencode} run --help` exited {result.returncode}: {_tail(result.stderr)}"
+        )
+    text = (result.stdout or "") + "\n" + (result.stderr or "")
+    missing = [flag for flag in required_help_flags(command) if flag not in text]
+    if missing:
+        raise PreflightFailure(
+            "the installed OpenCode no longer documents "
+            + ", ".join(missing)
+            + "; the bridge passes these, so upgrade or pin a supported OpenCode"
+        )
+
+
+def probe_agents(opencode, environment, agent_id, marker=None, nonce=None):
+    """Run `debug agents`: the agent must be present, and the guard must have removed its tools."""
+    try:
+        result = subprocess.run(
+            [opencode, "debug", "agents", "--standalone"],
+            capture_output=True,
+            text=True,
+            timeout=PREFLIGHT_TIMEOUT,
+            env=environment,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise PreflightFailure(f"`{opencode} debug agents` did not run: {error}") from error
+    if result.returncode != 0:
+        raise PreflightFailure(
+            f"`{opencode} debug agents` exited {result.returncode}: {_tail(result.stderr)}"
+        )
+    try:
+        agents = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise PreflightFailure(
+            f"`{opencode} debug agents` did not print agent JSON: {_tail(result.stdout or result.stderr)}"
+        ) from error
+    found = [agent for agent in agents if isinstance(agent, dict) and agent.get("id") == agent_id]
+    if not found:
+        raise PreflightFailure(
+            f"the generated agent {agent_id!r} is not in this OpenCode's agent list; the bridge's "
+            "config content was not loaded"
+        )
+    if found[0].get("mode") != "primary":
+        raise PreflightFailure(f"the generated agent {agent_id!r} is not a primary agent")
+    if marker is None:
+        return
+    records = guard_records(marker, nonce)
+    before = [record for record in records if record["stage"] == "before"]
+    after = [record for record in records if record["stage"] == "after"]
+    if not after:
+        raise PreflightFailure(
+            "the AgentForge guard plugin did not load; OpenCode would offer the worktree removal "
+            "tool, so the bridge will not run (pin OpenCode 2.2.x or update "
+            "scripts/agents/opencode-plugins/agentforge-guard)"
+        )
+    present = set(records[0].get("tools") or [])
+    if not present.intersection(GUARDED_TOOLS):
+        raise PreflightFailure(
+            "the guard plugin found none of the worktree tools it must remove; OpenCode's tool names "
+            "changed, so update scripts/agents/opencode-plugins/agentforge-guard before running"
+        )
+    remaining = set(after[-1].get("tools") or []).intersection(GUARDED_TOOLS)
+    if remaining:
+        raise PreflightFailure(
+            "the guard plugin did not remove "
+            + ", ".join(sorted(remaining))
+            + "; the bridge will not run while the worktree can be deleted"
+        )
+
+
+def guard_records(marker, nonce):
+    records = []
+    try:
+        lines = Path(marker).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return records
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and record.get("nonce") == nonce:
+            records.append(record)
+    return records
+
+
+PROBE_PLUGIN = """import { Plugin } from "@opencode/plugin"
+import { appendFileSync } from "node:fs"
+export default Plugin.define({
+  id: "agentforge.preflight-probe",
+  setup() {
+    const marker = process.env.AGENTFORGE_PROBE_MARKER
+    if (marker) appendFileSync(marker, "loaded\\n")
+  },
+})
+"""
+
+
+def probe_project_isolation(opencode, environment, worktree, scratch):
+    """Plant a project config and a project plugin, then prove OpenCode ignored both."""
+    worktree = Path(worktree)
+    config_probe = worktree / "opencode.json"
+    created_config = False
+    probe_root = worktree / ".opencode" / "plugins" / f"agentforge-preflight-{secrets.token_hex(4)}"
+    probe_marker = Path(scratch) / "project-plugin.jsonl"
+    created_parents = []
+    try:
+        if not config_probe.exists() and not (worktree / "opencode.jsonc").exists():
+            config_probe.write_text('{"$schema": "https://opencode.ai/config.json"}\n', encoding="utf-8")
+            created_config = True
+        room = probe_root
+        while not room.parent.exists():
+            created_parents.append(room.parent)
+            room = room.parent
+        probe_root.mkdir(parents=True, exist_ok=True)
+        (probe_root / "package.json").write_text(
+            json.dumps(
+                {
+                    "name": "agentforge-preflight-probe",
+                    "version": "1.0.0",
+                    "type": "module",
+                    "exports": {".": "./index.ts"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (probe_root / "index.ts").write_text(PROBE_PLUGIN, encoding="utf-8")
+        probe_marker.unlink(missing_ok=True)
+
+        try:
+            result = subprocess.run(
+                [opencode, "debug", "config", "--standalone"],
+                capture_output=True,
+                text=True,
+                timeout=PREFLIGHT_TIMEOUT,
+                env={**environment, "AGENTFORGE_PROBE_MARKER": str(probe_marker)},
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise PreflightFailure(f"`{opencode} debug config` did not run: {error}") from error
+        if result.returncode != 0:
+            raise PreflightFailure(
+                f"`{opencode} debug config` exited {result.returncode}: {_tail(result.stderr)}"
+            )
+        if probe_marker.exists() and probe_marker.read_text(encoding="utf-8").strip():
+            raise PreflightFailure(
+                "OpenCode loaded a project plugin despite OPENCODE_CONFIG_PROJECT_DISABLE; the "
+                "worktree could loosen this run's policy, so the bridge will not run"
+            )
+        try:
+            sources = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            raise PreflightFailure(
+                f"`{opencode} debug config` did not print source JSON: {_tail(result.stdout)}"
+            ) from error
+        leaked = []
+        for source in sources if isinstance(sources, list) else []:
+            path = source.get("path") if isinstance(source, dict) else None
+            if not isinstance(path, str):
+                continue
+            try:
+                resolved = Path(path).resolve()
+            except OSError:
+                continue
+            if resolved == worktree.resolve() or worktree.resolve() in resolved.parents:
+                leaked.append(path)
+        if leaked:
+            raise PreflightFailure(
+                "OpenCode loaded project configuration from "
+                + ", ".join(leaked)
+                + " despite OPENCODE_CONFIG_PROJECT_DISABLE; the worktree could loosen this run's "
+                "policy, so the bridge will not run"
+            )
+    finally:
+        shutil.rmtree(probe_root, ignore_errors=True)
+        for parent in created_parents:
+            try:
+                parent.rmdir()
+            except OSError:
+                pass
+        if created_config:
+            config_probe.unlink(missing_ok=True)
+
+
+def probe_model(opencode, environment, model):
+    """Catch a typo in --model before the run (the catalog is not a credential check)."""
+    wanted = model.split("#", 1)[0]
+    try:
+        result = subprocess.run(
+            [opencode, "models", "--standalone"],
+            capture_output=True,
+            text=True,
+            timeout=PREFLIGHT_TIMEOUT,
+            env=environment,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise PreflightFailure(f"`{opencode} models` did not run: {error}") from error
+    if result.returncode != 0:
+        raise PreflightFailure(
+            f"`{opencode} models` exited {result.returncode}: {_tail(result.stderr)}"
+        )
+    listed = {line.strip() for line in (result.stdout or "").splitlines() if line.strip()}
+    if wanted not in listed:
+        raise PreflightFailure(
+            f"model {model!r} is not in OpenCode's catalog; check --model or connect the provider"
+        )
+
+
+def prepare_roots(scratch, target):
+    if target:
+        try:
+            Path(target).mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise PreflightFailure(f"cannot create the assigned target directory {target}: {error}") from error
+    for root in [scratch] + ([target] if target else []):
+        try:
+            with tempfile.NamedTemporaryFile(dir=root, prefix=".agentforge-preflight-", delete=True):
+                pass
+        except OSError as error:
+            raise PreflightFailure(f"root {root} is not writable: {error}") from error
+
+
+def run_preflight(*, opencode, command, environment, agent_id, marker, nonce, worktree, scratch, target, model):
+    """The ordered preflight. Returns True when the executable identified as OpenCode."""
+    version = probe_version(opencode, environment)
+    print(f"opencode-bridge: preflight: {version}", flush=True)
+    probe_help(opencode, command, environment)
+    real = IDENTITY.match(version.strip()) is not None
+    probe_agents(
+        opencode,
+        environment,
+        agent_id,
+        marker=marker if real else None,
+        nonce=nonce if real else None,
+    )
+    if real:
+        probe_project_isolation(opencode, environment, worktree, scratch)
+        if model:
+            probe_model(opencode, environment, model)
+    prepare_roots(scratch, target)
+    print(
+        "opencode-bridge: preflight: "
+        + (
+            "executable, flags, agent, guard, project isolation, model, and roots OK"
+            if real
+            else "executable, flags, and agent OK (stand-in; OpenCode-specific probes skipped)"
+        ),
+        flush=True,
+    )
+    return real
+
+
+def self_test():
+    # C1: the shared fixture pins this decoder to the Rust encoder (ADR-0058).
+    task = bridge_kit.decode_prompt(bridge_kit.FIXTURE.read_bytes())
+    assert task["task_id"] == "P6-M004-T0001"
+
+    sample = {
+        "contract_version": "1",
+        "task_id": "P9-M001-T0001",
+        "milestone_id": "P9-M001",
+        "primary_role": "implementer",
+        "goal": "Multi-line goal\nwith ünïcode ✓",
+        "non_goals": ["no scope creep"],
+        "dependency_task_ids": [],
+        "allowed_paths": ["crates/example", "docs/EXAMPLE.md"],
+        "forbidden_paths": ["crates/example/secret"],
+        "capabilities": ["run_local_commands"],
+        "required_approvals": [],
+        "required_gates": ["full"],
+        "expected_outputs": ["tests", "docs"],
+        "evidence_requirements": [],
+    }
+    scratch, target = "/tmp/agentforge-scratch", "/tmp/agentforge-target"
+
+    # C1: ordered rules, catch-all first, nothing asks.
+    rules = permissions(sample, scratch, target)
+    assert rules[0] == {"action": "*", "resource": "*", "effect": "deny"}, rules[0]
+    assert all(rule["effect"] in ("allow", "deny") for rule in rules), "a headless run cannot ask"
+    assert {"action": "read", "resource": "*", "effect": "allow"} in rules
+    assert {"action": "edit", "resource": "*", "effect": "allow"} in rules
+
+    # C2: secrets are denied for read and edit, including nested files.
+    for action in ("read", "edit"):
+        assert {"action": action, "resource": "*.env", "effect": "deny"} in rules
+        assert {"action": action, "resource": "*.env.*", "effect": "deny"} in rules
+
+    # C3: capabilities decide shell and network; both deny by default; the denials come last.
+    assert {"action": "shell", "resource": "*", "effect": "allow"} in rules
+    assert {"action": "shell", "resource": "git push*", "effect": "deny"} in rules, "deny after allow"
+    assert {"action": "webfetch", "resource": "*", "effect": "deny"} in rules
+    gated = dict(sample, capabilities=["write_owned_paths", "use_network"])
+    gated_rules = permissions(gated, scratch, target)
+    assert {"action": "shell", "resource": "*", "effect": "deny"} in gated_rules
+    assert {"action": "webfetch", "resource": "*", "effect": "allow"} in gated_rules
+    assert {"action": "websearch", "resource": "*", "effect": "allow"} in gated_rules
+    for action in ("question", "skill", "subagent", "execute", "browser"):
+        assert {"action": action, "resource": "*", "effect": "deny"} in rules, action
+    assert {"action": "external_directory", "resource": "*", "effect": "deny"} in rules
+    assert {"action": "external_directory", "resource": f"{scratch}/*", "effect": "allow"} in rules
+    assert {"action": "external_directory", "resource": f"{target}/*", "effect": "allow"} in rules
+    no_target = permissions(sample, scratch, None)
+    assert not any(str(rule["resource"]).startswith(("/tmp/agentforge-target",)) for rule in no_target)
+
+    # C4: the config document is bridge-owned, isolated, and loads the guard by absolute path.
+    agent_id = new_agent_id()
+    assert re.fullmatch(r"agentforge-[0-9a-f]{12}", agent_id), agent_id
+    config = config_document(sample, agent_id, scratch, target)
+    assert config["snapshots"] is False
+    assert config["plugins"] == [str(PLUGIN_DIR)] and PLUGIN_DIR.is_absolute()
+    assert PLUGIN_DIR.is_dir() and (PLUGIN_DIR / "package.json").is_file()
+    agent = config["agents"][agent_id]
+    assert agent["mode"] == "primary" and agent["permissions"] == rules
+    assert config["agents"]["title"] == {"disabled": True}
+    assert set(config["agents"]) == {agent_id, "title"}, "no other agent may inherit the run"
+
+    # C5: the argv is fixed, and every forbidden flag is refused.
+    command = build_command("opencode", agent_id, "stub/stub-model")
+    assert command[:6] == ["opencode", "run", "--standalone", "--format", "json", "--agent"]
+    assert command[6] == agent_id and command[7:] == ["--model", "stub/stub-model"]
+    assert "json" in command and "--agent" in command
+    for flag in FORBIDDEN_FLAGS:
+        try:
+            build_command("opencode", agent_id, flag)
+        except bridge_kit.BridgeError:
+            pass
+        else:
+            raise AssertionError(f"accepted {flag} as a model")
+    try:
+        build_command("opencode", agent_id)
+    except bridge_kit.BridgeError:
+        raise AssertionError("a model is optional") from None
+    assert build_command("opencode", agent_id) == [
+        "opencode",
+        "run",
+        "--standalone",
+        "--format",
+        "json",
+        "--agent",
+        agent_id,
+    ]
+
+    # C6: NDJSON decoding.
+    stream = "\n".join(
+        [
+            json.dumps({"type": "step_start", "part": {}}),
+            json.dumps({"type": "tool_use", "part": {"tool": "read", "state": {"status": "completed"}}}),
+            json.dumps({"type": "text", "part": {"text": "first "}}),
+            json.dumps({"type": "text", "part": {"text": "second"}}),
+            json.dumps({"type": "error", "error": {"message": "Provider request failed with HTTP 401"}}),
+            "not json at all",
+        ]
+    )
+    summary, tools, errors, other = decode_stream(stream)
+    assert summary == "first second", summary
+    assert tools == [{"tool": "read", "status": "completed", "error": None}], tools
+    assert errors == ["Provider request failed with HTTP 401"], errors
+    assert other == ["not json at all"], other
+    assert decode_stream("") == ("", [], [], [])
+    assert decode_stream("{broken\n") == ("", [], [], ["{broken"])
+    # OpenCode can re-emit the final text under a new part id; the summary must not duplicate it.
+    repeated = "\n".join(
+        [
+            json.dumps({"type": "text", "part": {"id": "a", "text": "done"}}),
+            json.dumps({"type": "text", "part": {"id": "b", "text": "done"}}),
+        ]
+    )
+    assert decode_stream(repeated)[0] == "done", decode_stream(repeated)[0]
+    # A part that streams is cumulative: the last value for its id wins, not the concatenation.
+    streaming = "\n".join(
+        [
+            json.dumps({"type": "text", "part": {"id": "a", "text": "Hel"}}),
+            json.dumps({"type": "text", "part": {"id": "a", "text": "Hello"}}),
+        ]
+    )
+    assert decode_stream(streaming)[0] == "Hello", decode_stream(streaming)[0]
+
+    # C9: hints are additive and specific.
+    assert "credentials" in hint_for("Your credit balance is too low")
+    assert "stdin" in hint_for("You must provide a message")
+    assert "model" in hint_for("No model selected")
+    assert hint_for("everything is fine") is None
+
+    # C7: MCP tasks are refused, with a cause and a remedy.
+    assert "use_mcp_tools" in MCP_REFUSAL and "Codex" in MCP_REFUSAL
+    assert "execute" in MCP_REFUSAL and "fetch" in MCP_REFUSAL
+
+    # C8: preflight against a stand-in that answers the questions but does not identify as OpenCode.
+    with tempfile.TemporaryDirectory() as scratch_dir:
+        stand_in = Path(scratch_dir) / "stand-in"
+        stand_in.write_text(
+            "#!/bin/sh\n"
+            'case "$1 $2" in\n'
+            '  "--version ") echo "stand-in 1.0.0"; exit 0;;\n'
+            '  "run --help") echo "  --standalone --format --agent --model"; exit 0;;\n'
+            'esac\n'
+            'if [ "$1" = "debug" ] && [ "$2" = "agents" ]; then\n'
+            '  echo "$OPENCODE_CONFIG_CONTENT" | python3 -c "import json,sys; c=json.load(sys.stdin); '
+            'print(json.dumps([{\'id\': k, \'mode\': v.get(\'mode\')} for k, v in c[\'agents\'].items()]))"\n'
+            "  exit 0\n"
+            "fi\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        stand_in.chmod(0o755)
+        marker = Path(scratch_dir) / "guard.jsonl"
+        environment = {
+            "PATH": "/usr/bin:/bin",
+            "OPENCODE_CONFIG_CONTENT": json.dumps(
+                {"agents": {agent_id: {"mode": "primary"}, "title": {"disabled": True}}}
+            ),
+        }
+        run_preflight(
+            opencode=str(stand_in),
+            command=build_command(str(stand_in), agent_id),
+            environment=environment,
+            agent_id=agent_id,
+            marker=str(marker),
+            nonce="selftest",
+            worktree=scratch_dir,
+            scratch=scratch_dir,
+            target=None,
+            model=None,
+        )
+        # A stand-in that drops --agent from help is flag drift.
+        stand_in.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "--version" ]; then echo "stand-in 1.0.0"; exit 0; fi\n'
+            'if [ "$1" = "run" ]; then echo "  --standalone --format --model"; exit 0; fi\n'
+            'if [ "$1" = "debug" ]; then echo \'[{"id": "' + agent_id + '", "mode": "primary"}]\'; exit 0; fi\n'
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        try:
+            run_preflight(
+                opencode=str(stand_in),
+                command=build_command(str(stand_in), agent_id),
+                environment=environment,
+                agent_id=agent_id,
+                marker=str(marker),
+                nonce="selftest",
+                worktree=scratch_dir,
+                scratch=scratch_dir,
+                target=None,
+                model=None,
+            )
+            raise AssertionError("flag drift must fail preflight")
+        except bridge_kit.BridgeError as error:
+            assert "--agent" in str(error), error
+        # A stand-in that omits the agent is a config-content failure.
+        stand_in.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "--version" ]; then echo "stand-in 1.0.0"; exit 0; fi\n'
+            'if [ "$1" = "run" ]; then echo "  --standalone --format --agent --model"; exit 0; fi\n'
+            'if [ "$1" = "debug" ]; then echo "[]"; exit 0; fi\n'
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        try:
+            run_preflight(
+                opencode=str(stand_in),
+                command=build_command(str(stand_in), agent_id),
+                environment=environment,
+                agent_id=agent_id,
+                marker=str(marker),
+                nonce="selftest",
+                worktree=scratch_dir,
+                scratch=scratch_dir,
+                target=None,
+                model=None,
+            )
+            raise AssertionError("a missing agent must fail preflight")
+        except bridge_kit.BridgeError as error:
+            assert "not in this OpenCode's agent list" in str(error), error
+        # An executable that claims to be OpenCode but never writes the guard marker is refused:
+        # a run without the guard could delete the worktree.
+        stood_in = Path(scratch_dir) / "opencode-stand-in"
+        stood_in.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "--version" ]; then echo "opencode v2.2.0"; exit 0; fi\n'
+            'if [ "$1" = "run" ]; then echo "  --standalone --format --agent --model"; exit 0; fi\n'
+            'if [ "$1" = "debug" ]; then echo \'[{"id": "' + agent_id + '", "mode": "primary"}]\'; exit 0; fi\n'
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        stood_in.chmod(0o755)
+        try:
+            run_preflight(
+                opencode=str(stood_in),
+                command=build_command(str(stood_in), agent_id),
+                environment=environment,
+                agent_id=agent_id,
+                marker=str(marker),
+                nonce="selftest-missing-guard",
+                worktree=scratch_dir,
+                scratch=scratch_dir,
+                target=None,
+                model=None,
+            )
+            raise AssertionError("a missing guard marker must fail preflight")
+        except bridge_kit.BridgeError as error:
+            assert "guard plugin did not load" in str(error), error
+
+    # C9: instructions name the mode, the roots, and the real limits.
+    text = instructions(sample, Path("/tmp/COMMIT_MSG"), scratch, target, shell=True)
+    assert "not by an operating-system sandbox" in text
+    assert scratch in text and target in text
+    assert "Do not include Co-Authored-By" in text
+    assert "You may run local commands" in text
+    assert "Network access is denied" in text
+    gated_text = instructions(
+        dict(sample, capabilities=["use_network"]), Path("/tmp/COMMIT_MSG"), scratch, None, network=True
+    )
+    assert "You may not run shell commands" in gated_text
+    assert "Network access is allowed" in gated_text
+
+    print("opencode-bridge self-test passed")
+    return bridge_kit.EXIT_COMMITTED
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(add_help=True, description="Run OpenCode as an AgentForge agent.")
+    parser.add_argument("--opencode", default="opencode")
+    parser.add_argument("--model")
+    parser.add_argument(
+        "--preflight",
+        dest="preflight",
+        action="store_true",
+        default=True,
+        help="verify the executable, flags, agent, guard, project isolation, model, and roots first",
+    )
+    parser.add_argument(
+        "--no-preflight",
+        dest="preflight",
+        action="store_false",
+        help="skip the environment checks (the agent's own failure is still reported)",
+    )
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
+    return parser
+
+
+def main():
+    arguments = build_parser().parse_args()
+    if arguments.self_test:
+        return self_test()
+
+    try:
+        raw_prompt = sys.stdin.buffer.read()
+        task = bridge_kit.decode_prompt(raw_prompt)
+    except (bridge_kit.PromptError, UnicodeDecodeError) as error:
+        print(f"opencode-bridge: invalid task prompt: {error}", file=sys.stderr)
+        return bridge_kit.EXIT_INVALID
+    if not task["allowed_paths"]:
+        print("opencode-bridge: the task declares no allowed paths", file=sys.stderr)
+        return bridge_kit.EXIT_INVALID
+    if "use_mcp_tools" in task["capabilities"]:
+        print(f"opencode-bridge: {MCP_REFUSAL}", file=sys.stderr)
+        return bridge_kit.EXIT_INVALID
+
+    with tempfile.TemporaryDirectory(prefix="agentforge-opencode-") as scratch:
+        message_file = Path(scratch) / "COMMIT_MSG"
+        marker = Path(scratch) / "guard.jsonl"
+        nonce = secrets.token_hex(8)
+        agent_id = new_agent_id()
+        environment = bridge_kit.agent_environment("opencode-bridge")
+        environment["OPENCODE_CONFIG_CONTENT"] = json.dumps(
+            config_document(task, agent_id, scratch, environment.get("CARGO_TARGET_DIR"))
+        )
+        # The worktree must not be able to add a rule. Project discovery off; no auto-update.
+        environment["OPENCODE_CONFIG_PROJECT_DISABLE"] = "true"
+        environment["OPENCODE_DISABLE_AUTOUPDATE"] = "1"
+        environment["AGENTFORGE_GUARD_MARKER"] = str(marker)
+        environment["AGENTFORGE_GUARD_NONCE"] = nonce
+        target = environment.get("CARGO_TARGET_DIR")
+
+        try:
+            command = build_command(arguments.opencode, agent_id, arguments.model)
+        except bridge_kit.BridgeError as error:
+            print(f"opencode-bridge: {error}", file=sys.stderr)
+            return bridge_kit.EXIT_INVALID
+
+        text = instructions(
+            task,
+            message_file,
+            scratch,
+            target,
+            network="use_network" in task["capabilities"],
+            shell="run_local_commands" in task["capabilities"],
+        )
+        worktree = Path.cwd()
+        if arguments.dry_run:
+            print(text)
+            print("command:", " ".join(command))
+            print("stdin:", "<instructions>")
+            return bridge_kit.EXIT_COMMITTED
+
+        real = False
+        if arguments.preflight:
+            try:
+                real = run_preflight(
+                    opencode=arguments.opencode,
+                    command=command,
+                    environment=environment,
+                    agent_id=agent_id,
+                    marker=str(marker),
+                    nonce=nonce,
+                    worktree=worktree,
+                    scratch=scratch,
+                    target=target,
+                    model=arguments.model,
+                )
+            except bridge_kit.BridgeError as error:
+                print(f"opencode-bridge: preflight failed: {error}", file=sys.stderr)
+                return bridge_kit.EXIT_INVALID
+        else:
+            try:
+                prepare_roots(scratch, target)
+            except bridge_kit.BridgeError as error:
+                print(f"opencode-bridge: {error}", file=sys.stderr)
+                return bridge_kit.EXIT_INVALID
+
+        if arguments.preflight and real:
+            # The preflight's own `debug agents` and `debug config` runs also load the guard, so
+            # clear its marker and require the run itself to write a fresh before/after pair.
+            marker.unlink(missing_ok=True)
+
+        print(f"opencode-bridge: running OpenCode for {task['task_id']}", flush=True)
+        try:
+            agent = subprocess.run(
+                command,
+                input=text,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+        except OSError as error:
+            print(f"opencode-bridge: cannot run {arguments.opencode!r}: {error}", file=sys.stderr)
+            return bridge_kit.EXIT_INVALID
+
+        summary, tools, errors, other = decode_stream(agent.stdout)
+        sys.stderr.write(agent.stderr)
+        for line in other:
+            print(line)
+        for event in tools:
+            detail = f": {event['error']}" if event["error"] else ""
+            print(f"opencode-bridge: tool {event['tool']} {event['status']}{detail}", flush=True)
+        for message in errors:
+            print(f"opencode-bridge: OpenCode error: {message}", file=sys.stderr)
+        if agent.returncode != 0:
+            hint = hint_for(agent.stdout + "\n" + agent.stderr)
+            if hint:
+                print(f"opencode-bridge: hint: {hint}", file=sys.stderr)
+            print(
+                f"opencode-bridge: OpenCode exited {agent.returncode}; nothing committed",
+                file=sys.stderr,
+            )
+            return agent.returncode
+        if errors:
+            hint = hint_for("\n".join(errors))
+            if hint:
+                print(f"opencode-bridge: hint: {hint}", file=sys.stderr)
+            print("opencode-bridge: OpenCode reported an error; nothing committed", file=sys.stderr)
+            return 1
+        if arguments.preflight and real:
+            records = guard_records(marker, nonce)
+            after = [record for record in records if record["stage"] == "after"]
+            if not after:
+                print(
+                    "opencode-bridge: the guard plugin did not load for this run; refusing to commit "
+                    "changes from an unguarded run",
+                    file=sys.stderr,
+                )
+                return bridge_kit.EXIT_INVALID
+            remaining = set(after[-1].get("tools") or []).intersection(GUARDED_TOOLS)
+            if remaining:
+                print(
+                    "opencode-bridge: the guard did not remove "
+                    + ", ".join(sorted(remaining))
+                    + " for this run; refusing to commit",
+                    file=sys.stderr,
+                )
+                return bridge_kit.EXIT_INVALID
+        if summary:
+            print(summary)
+
+        paths = bridge_kit.changed_paths()
+        if not paths:
+            print("opencode-bridge: the agent made no changes", file=sys.stderr)
+            return bridge_kit.EXIT_NO_CHANGES
+        violations = bridge_kit.boundary_violations(paths, task["allowed_paths"], task["forbidden_paths"])
+        if violations:
+            print("opencode-bridge: changes outside the task boundary; nothing committed:", file=sys.stderr)
+            for path in violations:
+                print(f"  {path}", file=sys.stderr)
+            return bridge_kit.EXIT_PATH_VIOLATION
+        print(
+            f"opencode-bridge: committing {len(paths)} changed path(s); the pre-commit gate runs now",
+            flush=True,
+        )
+        if (
+            bridge_kit.commit(
+                task,
+                paths,
+                message_file,
+                summary,
+                AGENT_NAME,
+                BRIDGE_PATH,
+                arguments.model,
+                CO_AUTHOR,
+            )
+            != 0
+        ):
+            print("opencode-bridge: commit or pre-commit gate failed; nothing committed", file=sys.stderr)
+            return bridge_kit.EXIT_COMMIT_FAILED
+    print("opencode-bridge: committed")
+    return bridge_kit.EXIT_COMMITTED
+
+
+if __name__ == "__main__":
+    sys.exit(main())

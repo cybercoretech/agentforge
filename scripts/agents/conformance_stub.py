@@ -14,12 +14,15 @@ behaves according to environment variables:
 It also models the honest behavior of a real agent: it writes its commit message to the scratch
 path the bridge told it about, which it finds by scanning its arguments and stdin.
 
-It also answers the two questions a bridge preflight asks (`--version` and `exec --help`), with the
-same long flags and sandbox mode a real Codex documents, so the conformance suite exercises the
-preflight instead of bypassing it (ADR-0060). It identifies as itself, not as Codex, so a
-Codex-specific sandbox-runtime probe is not applied to it.
+It also answers the three questions the Codex and OpenCode preflights ask (`--version`,
+`exec --help`/`run --help`, and OpenCode's `debug agents --standalone`), with the same long flags a
+real agent documents, so the conformance suite exercises each preflight instead of bypassing it
+(ADR-0060, ADR-0061). It identifies as itself, not as Codex or OpenCode, so the probes that only a
+real agent can answer (the sandbox runtime, the guard plugin, project isolation, the model catalog)
+are not applied to it.
 """
 
+import json
 import os
 import re
 import sys
@@ -44,6 +47,19 @@ HELP = """Usage: conformance-stub exec [OPTIONS] [PROMPT]
   -o, --output-last-message <FILE>
 """
 
+RUN_HELP = """DESCRIPTION
+  Run the stub agent with a message
+
+USAGE
+  conformance-stub run [flags] [<message...>]
+
+FLAGS
+      --agent <id>      Agent to use
+      --format <choice> Output format (choices: default, json)
+      --model <model>   Model to use
+      --standalone      Run without the background service
+"""
+
 
 def answer_preflight(arguments):
     """Returns an exit code when the invocation is a preflight question, else None."""
@@ -53,7 +69,29 @@ def answer_preflight(arguments):
     if arguments[:1] == ["exec"] and any(part in ("--help", "-h") for part in arguments[1:]):
         print(HELP)
         return 0
+    if arguments[:1] == ["run"] and any(part in ("--help", "-h") for part in arguments[1:]):
+        print(RUN_HELP)
+        return 0
+    if arguments[:1] == ["debug"] and arguments[1:2] == ["agents"]:
+        print(json.dumps(configured_agents()))
+        return 0
     return None
+
+
+def configured_agents():
+    """Echo the agents OpenCode would load from the config content the bridge passed."""
+    try:
+        document = json.loads(os.environ.get("OPENCODE_CONFIG_CONTENT", "{}"))
+    except json.JSONDecodeError:
+        return []
+    agents = document.get("agents") if isinstance(document, dict) else None
+    if not isinstance(agents, dict):
+        return []
+    return [
+        {"id": identifier, "mode": definition.get("mode")}
+        for identifier, definition in agents.items()
+        if isinstance(definition, dict)
+    ]
 
 
 def find_message_path(arguments, stdin_text):
