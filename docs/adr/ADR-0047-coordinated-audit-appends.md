@@ -4,6 +4,7 @@
 - Date: 2026-09-24
 - Milestone: P0-M013
 - Amends: ADR-0009-era audit store behavior (P0-M009)
+- Amended by: ADR-0057 (progress-based append-lock waiting)
 
 ## Context
 

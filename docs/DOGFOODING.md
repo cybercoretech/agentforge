@@ -187,7 +187,11 @@ gates, review, accept, integrate. This file is the run log and the list of frict
     2 ms, not fair), and each append re-verifies the growing log and fsyncs. On a slow runner, one
     thread can keep losing the race for the whole budget. It passed on the repeat and 5/5 locally,
     and normal use has far less contention. A fair wait (for example an OS file lock) or a budget
-    tied to progress would remove it. **Open.**
+    tied to progress would remove it. **Resolved in P6-M002 (ADR-0057):** the wait is now tied to
+    observed progress. A waiter resets its stuck timer whenever the lock file changes, so it keeps
+    waiting while other writers are succeeding, and only reports a holder that has left the lock
+    unchanged for five seconds. Retries back off with jitter, and the total wait is capped at sixty
+    seconds. Twenty consecutive local contention runs passed.
 
 
 ## P1-M007 run log (2026-09-24)

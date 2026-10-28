@@ -4,6 +4,7 @@ use agentforge_audit::{AuditEvent, AuditEventKind, AuditStore, FileAuditStore};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -158,5 +159,26 @@ fn concurrent_writers_keep_one_verified_chain() {
     for (index, record) in reopened.records().iter().enumerate() {
         assert_eq!(record.event().sequence(), index as u64 + 1);
     }
+    fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn a_wedged_lock_is_reported_and_never_stolen() {
+    let path = path();
+    FileAuditStore::open(&path).unwrap();
+    let lock = path.with_file_name("audit.log.lock");
+    fs::write(&lock, "pid=0\n").unwrap();
+
+    let mut store = FileAuditStore::open(&path).unwrap();
+    let started = Instant::now();
+    let error = store
+        .append(event(next(&store), "blocked"))
+        .expect_err("a wedged lock must not be stolen");
+    assert!(started.elapsed() >= Duration::from_secs(5));
+    assert!(error.to_string().contains("audit append lock"));
+    assert!(lock.exists(), "the lock is never removed by a waiter");
+
+    fs::remove_file(&lock).unwrap();
+    store.append(event(next(&store), "after")).unwrap();
     fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }

@@ -15,6 +15,15 @@ Successful appends use an append-only file handle and `sync_all` before returnin
 tamper-evident integrity signal, not cryptographic authenticity without external key custody.
 Queries return sequence order and are bounded by the decoded record limits.
 
+## Concurrent appends (P0-M013, amended by ADR-0057)
+
+Every append takes `<log>.lock` (create-new, removed on drop, never stolen), then re-reads whatever
+other writers appended and places the new event after them. Waiting is **progress-based**: the
+waiter samples the lock file, and a change means another writer held it in between. A lock that has
+not changed for five seconds is treated as a stuck holder and reported with recovery guidance; the
+total wait is capped at sixty seconds, and retries back off with jitter so contenders do not poll in
+lockstep. A crashed holder's lock is never removed by a waiter.
+
 ## Timestamps (P0-M015)
 
 Every event records **when it happened**, in wall-clock milliseconds since the Unix epoch.

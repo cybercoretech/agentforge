@@ -6,7 +6,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAGIC: &[u8; 5] = b"AFAL\0";
 const FORMAT_VERSION: u16 = 1;
@@ -323,8 +323,85 @@ pub struct FileAuditStore {
     len: u64,
 }
 
-/// How long an append waits for another writer's append lock.
-const APPEND_LOCK_WAIT: Duration = Duration::from_secs(5);
+/// How long an append waits while the lock file does not change before treating the holder as
+/// stuck.
+const APPEND_LOCK_STUCK_WAIT: Duration = Duration::from_secs(5);
+
+/// Upper bound on total waiting, even while the lock keeps changing hands.
+const APPEND_LOCK_TOTAL_WAIT: Duration = Duration::from_secs(60);
+
+/// First retry interval, doubled up to the cap and offset by a small jitter.
+const APPEND_LOCK_BACKOFF_MIN_MS: u64 = 1;
+const APPEND_LOCK_BACKOFF_MAX_MS: u64 = 16;
+
+/// What a waiting writer can observe about a lock held by someone else.
+///
+/// A change means another writer acquired the lock in between, so the wait is making progress.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LockFingerprint {
+    len: u64,
+    modified: Option<Duration>,
+}
+
+/// The outcome of one observation while the lock is held elsewhere.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LockWait {
+    /// The lock changed hands since the previous observation.
+    Progress,
+    /// The lock is unchanged, and both budgets still allow waiting.
+    Retry,
+    /// The holder looks stuck, or the total budget is spent.
+    GiveUp,
+}
+
+/// Decides whether to keep waiting (dogfooding finding 23).
+///
+/// A single deadline cannot tell a wedged holder from a waiter that keeps losing a fair race, so
+/// the two cases get separate budgets: "unchanged for the stuck wait" means the holder is gone,
+/// and "elapsed past the total wait" keeps the wait finite under perpetual contention.
+fn lock_wait(elapsed: Duration, unchanged_for: Duration) -> LockWait {
+    if unchanged_for >= APPEND_LOCK_STUCK_WAIT || elapsed >= APPEND_LOCK_TOTAL_WAIT {
+        LockWait::GiveUp
+    } else if unchanged_for.is_zero() {
+        LockWait::Progress
+    } else {
+        LockWait::Retry
+    }
+}
+
+/// Samples the lock file; `None` means it was absent, which is also progress.
+fn lock_fingerprint(path: &Path) -> Option<LockFingerprint> {
+    let metadata = fs::metadata(path).ok()?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok());
+    Some(LockFingerprint {
+        len: metadata.len(),
+        modified,
+    })
+}
+
+/// A small xorshift so contenders do not retry in lockstep.
+struct Jitter(u64);
+
+impl Jitter {
+    fn seeded() -> Self {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| elapsed.subsec_nanos() as u64)
+            .unwrap_or(0);
+        // A zero state would make xorshift stay at zero forever.
+        Self((nanos ^ (u64::from(std::process::id()) << 17)) | 1)
+    }
+
+    fn below(&mut self, bound: u64) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0 % bound.max(1)
+    }
+}
 
 /// Exclusive, short-held append lock beside the log; removed on drop and never stolen.
 struct AppendLock {
@@ -339,7 +416,11 @@ impl AppendLock {
             .unwrap_or_default();
         name.push(".lock");
         let path = log_path.with_file_name(name);
-        let deadline = Instant::now() + APPEND_LOCK_WAIT;
+        let started = Instant::now();
+        let mut stuck_since = started;
+        let mut observed: Option<Option<LockFingerprint>> = None;
+        let mut delay_ms = APPEND_LOCK_BACKOFF_MIN_MS;
+        let mut jitter = Jitter::seeded();
         loop {
             match OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(mut file) => {
@@ -347,25 +428,39 @@ impl AppendLock {
                     return Ok(Self { path });
                 }
                 Err(error) if lock_is_busy(&error) => {
-                    if Instant::now() >= deadline {
-                        if error.kind() != io::ErrorKind::AlreadyExists {
-                            return Err(AuditError::Io(error));
-                        }
-                        return Err(AuditError::Io(io::Error::new(
-                            io::ErrorKind::WouldBlock,
-                            format!(
-                                "audit append lock {} is held by another writer; if no forge or \
-                                 forged process is running for this project, remove it",
-                                path.display()
-                            ),
-                        )));
+                    let now = Instant::now();
+                    let current = lock_fingerprint(&path);
+                    // A different fingerprint (including "absent") means another writer held the
+                    // lock in between, so this waiter is not stuck; only the holder is.
+                    if observed.is_some_and(|previous| previous != current) {
+                        stuck_since = now;
                     }
-                    thread::sleep(Duration::from_millis(2));
+                    observed = Some(current);
+                    if lock_wait(now - started, now - stuck_since) == LockWait::GiveUp {
+                        return Err(stuck_lock(&path, error));
+                    }
+                    thread::sleep(Duration::from_millis(delay_ms + jitter.below(4)));
+                    delay_ms = (delay_ms * 2).min(APPEND_LOCK_BACKOFF_MAX_MS);
                 }
                 Err(error) => return Err(AuditError::Io(error)),
             }
         }
     }
+}
+
+/// The error an operator sees when a lock outlives every budget.
+fn stuck_lock(path: &Path, error: io::Error) -> AuditError {
+    if error.kind() != io::ErrorKind::AlreadyExists {
+        return AuditError::Io(error);
+    }
+    AuditError::Io(io::Error::new(
+        io::ErrorKind::WouldBlock,
+        format!(
+            "audit append lock {} is held by another writer; if no forge or \
+             forged process is running for this project, remove it",
+            path.display()
+        ),
+    ))
 }
 
 /// Whether a failed create-new means another writer holds (or is just releasing) the lock.
@@ -898,4 +993,79 @@ fn create_atomically(path: &Path) -> Result<(), AuditError> {
     })();
     let _ = fs::remove_file(&temporary);
     result
+}
+
+#[cfg(test)]
+mod lock_wait_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn scratch() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "agentforge-lock-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir.join("audit.log.lock")
+    }
+
+    #[test]
+    fn progress_past_the_old_budget_keeps_waiting() {
+        // Finding 23: thirty seconds of waiting is fine while the lock keeps moving.
+        assert_eq!(
+            lock_wait(Duration::from_secs(30), Duration::ZERO),
+            LockWait::Progress
+        );
+    }
+
+    #[test]
+    fn an_unchanged_lock_is_reported_as_stuck() {
+        assert_eq!(
+            lock_wait(Duration::from_secs(6), APPEND_LOCK_STUCK_WAIT),
+            LockWait::GiveUp
+        );
+    }
+
+    #[test]
+    fn a_lock_that_keeps_moving_still_ends_at_the_total_budget() {
+        assert_eq!(
+            lock_wait(APPEND_LOCK_TOTAL_WAIT, Duration::from_millis(10)),
+            LockWait::GiveUp
+        );
+    }
+
+    #[test]
+    fn an_absent_lock_is_not_a_fingerprint() {
+        assert_eq!(lock_fingerprint(&scratch()), None);
+    }
+
+    #[test]
+    fn a_growing_lock_changes_its_fingerprint() {
+        let path = scratch();
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        writeln!(file, "pid=1").unwrap();
+        let before = lock_fingerprint(&path);
+        writeln!(file, "waited=1").unwrap();
+        let after = lock_fingerprint(&path);
+        assert!(before.is_some());
+        assert_ne!(before, after);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn jitter_stays_inside_its_bound() {
+        let mut jitter = Jitter::seeded();
+        for _ in 0..1000 {
+            assert!(jitter.below(4) < 4);
+        }
+        assert_eq!(jitter.below(0), 0);
+    }
 }
