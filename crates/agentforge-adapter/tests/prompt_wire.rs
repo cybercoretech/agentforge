@@ -29,6 +29,51 @@ fn full_task() -> AgentTask {
     task
 }
 
+/// The task the shared fixture was rendered from.
+///
+/// `scripts/agents/fixtures/task-prompt-v1.txt` is the ground truth shared with the Python bridge
+/// kit's decoder (ADR-0058). Both sides assert the same bytes, so the encoder here and the decoder
+/// there cannot drift apart silently.
+fn fixture_task() -> AgentTask {
+    let mut task = AgentTask::new(
+        "P6-M004-T0001",
+        "P6-M004",
+        AgentRole::Implementer,
+        "Add the shared bridge kit\nand keep the exit codes stable (café \u{2713})",
+    );
+    task.non_goals = vec![
+        "No new bridge".into(),
+        "No change to the prompt format".into(),
+    ];
+    task.allowed_paths = vec!["scripts/agents".into(), "docs/AGENT_PROFILES.md".into()];
+    task.forbidden_paths = vec!["scripts/agents/fixtures".into()];
+    task.capabilities = vec![
+        Capability::WriteOwnedPaths,
+        Capability::RunLocalCommands,
+        Capability::UseMcpTools,
+    ];
+    task.required_approvals = vec![ApprovalBoundary::ActivateImplementationPlan];
+    task.required_gates = vec!["full".into()];
+    task.expected_outputs = vec!["kit".into(), "conformance suite".into()];
+    task.evidence_requirements = vec!["self-test output".into()];
+    task
+}
+
+#[test]
+fn the_shared_fixture_matches_the_encoder_and_the_parser() {
+    let fixture = include_bytes!("../../../scripts/agents/fixtures/task-prompt-v1.txt");
+    let task = fixture_task();
+    assert_eq!(
+        render_task_prompt(&task),
+        fixture,
+        "the shared fixture is stale: regenerate it from render_task_prompt"
+    );
+    assert_eq!(
+        parse_task_prompt(fixture).expect("the shared fixture parses"),
+        task
+    );
+}
+
 #[test]
 fn render_then_parse_is_identity() {
     let task = full_task();

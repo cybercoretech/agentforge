@@ -9,6 +9,10 @@ writes an `agentforge-task-prompt-v1` document to stdin. The bridge:
 3. checks every changed path against the task's allowed and forbidden paths;
 4. commits the changes, so the repository's own pre-commit hook and gate run on them.
 
+Steps 1, 3, and 4 are shared with every other bridge through `scripts/agents/bridge_kit.py`
+(ADR-0058). This file holds only what is Claude-specific: the instructions, the command line, the
+tool policy, the `mcp.json` shape, and the co-author trailer.
+
 Exit codes: 0 committed, 2 invalid input or configuration, 3 no changes, 4 path violation,
 5 commit or pre-commit gate failure; any other code is Claude Code's own exit status.
 
@@ -22,31 +26,25 @@ Options:
                   either route, for tasks with use_mcp_tools)
   --model NAME    model to request (default: Claude Code's configured default)
   --dry-run       print the instructions and command, run nothing
-  --self-test     check the prompt decoder and path rules, then exit
+  --self-test     check the Claude-specific policy and the shared prompt fixture, then exit
 """
 
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-HEADER = b"agentforge-task-prompt-v1\n"
-SCALARS = ["contract_version", "task_id", "milestone_id", "primary_role", "goal"]
-LISTS = [
-    "non_goals",
-    "dependency_task_ids",
-    "allowed_paths",
-    "forbidden_paths",
-    "capabilities",
-    "required_approvals",
-    "required_gates",
-    "expected_outputs",
-    "evidence_requirements",
-]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import bridge_kit
+
+BRIDGE_PATH = "scripts/agents/claude-code-bridge"
+AGENT_NAME = "Claude Code"
+CO_AUTHOR = "Claude <noreply@anthropic.com>"
+
 ALLOWED_TOOLS = [
     "Read",
     "Edit",
@@ -70,172 +68,15 @@ DISALLOWED_TOOLS = [
     "WebFetch",
     "WebSearch",
 ]
-MAX_SUMMARY_CHARS = 4000
-
-
-class PromptError(ValueError):
-    pass
-
-
-def decode_prompt(data):
-    """Strictly decodes the length-delimited v1 document produced by render_task_prompt."""
-    if not data.startswith(HEADER):
-        raise PromptError("missing agentforge-task-prompt-v1 header")
-    position = len(HEADER)
-
-    def read_header(expected):
-        nonlocal position
-        end = data.find(b"\n", position)
-        if end < 0:
-            raise PromptError(f"truncated before {expected}")
-        name, _, length = data[position:end].decode("utf-8").partition(" ")
-        if name != expected or not length.isdigit():
-            raise PromptError(f"expected field {expected!r}, found {name!r}")
-        position = end + 1
-        return int(length)
-
-    def read_value(name):
-        nonlocal position
-        length = read_header(name)
-        end = position + length
-        if end + 1 > len(data) or data[end : end + 1] != b"\n":
-            raise PromptError(f"truncated value for {name}")
-        value = data[position:end].decode("utf-8")
-        position = end + 1
-        return value
-
-    task = {}
-    for name in SCALARS:
-        task[name] = read_value(name)
-    for name in LISTS:
-        count = read_header(name)
-        task[name] = [read_value("item") for _ in range(count)]
-    if position != len(data):
-        raise PromptError("trailing bytes after the last field")
-    return task
-
-
-def encode_prompt(task):
-    """Test helper mirroring the Rust encoder."""
-    output = bytearray(HEADER)
-
-    def field(name, value):
-        raw = value.encode("utf-8")
-        output.extend(f"{name} {len(raw)}\n".encode())
-        output.extend(raw + b"\n")
-
-    for name in SCALARS:
-        field(name, task[name])
-    for name in LISTS:
-        output.extend(f"{name} {len(task[name])}\n".encode())
-        for value in task[name]:
-            field("item", value)
-    return bytes(output)
-
-
-def within(path, roots):
-    path = path.strip("/")
-    for root in roots:
-        root = root.strip("/")
-        if root in ("", ".") or path == root or path.startswith(root + "/"):
-            return True
-    return False
-
-
-def boundary_violations(paths, allowed, forbidden):
-    return sorted(
-        path for path in paths if not within(path, allowed) or (forbidden and within(path, forbidden))
-    )
-
-
-def worktree_target_dir(git_dir, common_dir, base, current=None):
-    """The isolated Cargo target directory for a linked worktree, matching scripts/gate.sh.
-
-    Returns None for the main checkout or when the caller already chose a target directory.
-    """
-    if current or git_dir == common_dir or not base:
-        return None
-    return str(Path(base) / "agentforge-worktrees" / Path(git_dir).name)
-
-
-def git_output(*arguments):
-    return subprocess.run(["git", *arguments], check=True, capture_output=True, text=True).stdout.strip()
-
-
-def cargo_target_base():
-    try:
-        metadata = subprocess.run(
-            ["cargo", "metadata", "--no-deps", "--offline", "--format-version", "1"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    return json.loads(metadata).get("target_directory")
-
-
-def agent_environment():
-    """The agent's environment: inherited, plus an isolated CARGO_TARGET_DIR in linked worktrees,
-    so builds the agent runs directly cannot collide with other checkouts (P2-M029)."""
-    environment = dict(os.environ)
-    target = worktree_target_dir(
-        git_output("rev-parse", "--path-format=absolute", "--git-dir"),
-        git_output("rev-parse", "--path-format=absolute", "--git-common-dir"),
-        cargo_target_base(),
-        environment.get("CARGO_TARGET_DIR"),
-    )
-    if target:
-        environment["CARGO_TARGET_DIR"] = target
-        print(f"claude-code-bridge: agent CARGO_TARGET_DIR={target}", flush=True)
-    return environment
-
-
-def changed_paths():
-    output = subprocess.run(
-        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-        check=True,
-        capture_output=True,
-    ).stdout
-    entries = output.split(b"\0")
-    paths = []
-    index = 0
-    while index < len(entries):
-        entry = entries[index]
-        index += 1
-        if not entry:
-            continue
-        status, path = entry[:2].decode(), entry[3:].decode("utf-8")
-        paths.append(path)
-        if "R" in status or "C" in status:
-            # Renames and copies are followed by the source path, which must also be in bounds.
-            paths.append(entries[index].decode("utf-8"))
-            index += 1
-    return sorted(set(paths))
-
-
-def bullets(values, empty="none"):
-    return "\n".join(f"- {value}" for value in values) if values else f"- {empty}"
-
-
-class BridgeError(ValueError):
-    pass
 
 
 def script_tools(task):
     """Tools that let a task holding run_local_commands execute files in its own allowed paths,
     such as the self-tests it writes (P2-M035, finding 22). This grants nothing new: with
-    run_local_commands the agent already runs arbitrary code through cargo. Paths with spaces are
-    skipped, since tool patterns are space-separated."""
-    if "run_local_commands" not in task["capabilities"]:
-        return []
+    run_local_commands the agent already runs arbitrary code through cargo. Which paths are
+    runnable is decided by the kit; how to express that is Claude's business."""
     tools = []
-    for path in task["allowed_paths"]:
-        path = path.strip().rstrip("/")
-        while path.startswith("./"):
-            path = path[2:]
-        if not path or " " in path:
-            continue
+    for path in bridge_kit.runnable_paths(task):
         tools += [f"Bash(./{path})", f"Bash(./{path} *)", f"Bash(python3 {path} *)", f"Bash(bash {path} *)"]
     return tools
 
@@ -243,36 +84,17 @@ def script_tools(task):
 def mcp_arguments(task, forge, scratch, worktree, root):
     """Claude Code arguments and allowed tools for the MCP gateway, or none for tasks without
     use_mcp_tools. `scratch` must already hold the contract as `contract.txt`."""
-    if "use_mcp_tools" not in task["capabilities"]:
+    serve = bridge_kit.mcp_server_arguments(
+        task, forge, Path(scratch) / "contract.txt", worktree, root
+    )
+    if serve is None:
         return [], []
-    if not forge:
-        raise BridgeError(
-            "the task holds use_mcp_tools but no forge executable was found; pass --forge PATH "
-            "(profiles run with a cleared environment)"
-        )
-    serve = ["mcp", "serve", "--contract", str(Path(scratch) / "contract.txt"), "--worktree", str(worktree)]
-    if root:
-        serve += ["--root", str(root)]
     config = Path(scratch) / "mcp.json"
     config.write_text(
         json.dumps({"mcpServers": {"agentforge": {"type": "stdio", "command": str(forge), "args": serve}}}, indent=2),
         encoding="utf-8",
     )
     return ["--mcp-config", str(config), "--strict-mcp-config"], ["mcp__agentforge"]
-
-
-def project_root():
-    """The AgentForge project that owns this worktree, when it has task state (so tool calls are
-    audited there); None for a remote worker's clone, which has none."""
-    result = subprocess.run(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return None
-    root = Path(result.stdout.strip()).parent
-    return root if (root / ".forge" / "state" / "tasks.snapshot").is_file() else None
 
 
 def instructions(task, message_file, mcp=False, scripts=False):
@@ -283,22 +105,22 @@ You are running headless inside this task's isolated Git worktree. The current d
 {task['goal']}
 
 ## Non-goals
-{bullets(task['non_goals'])}
+{bridge_kit.bullets(task['non_goals'])}
 
 ## You may change only these paths
-{bullets(task['allowed_paths'], 'no paths are writable')}
+{bridge_kit.bullets(task['allowed_paths'], 'no paths are writable')}
 
 ## Never change these paths
-{bullets(task['forbidden_paths'])}
+{bridge_kit.bullets(task['forbidden_paths'])}
 
 ## Expected outputs
-{bullets(task['expected_outputs'])}
+{bridge_kit.bullets(task['expected_outputs'])}
 
 ## Evidence requirements
-{bullets(task['evidence_requirements'])}
+{bridge_kit.bullets(task['evidence_requirements'])}
 
 ## Required gates
-{bullets(task['required_gates'])}
+{bridge_kit.bullets(task['required_gates'])}
 
 ## How to work
 1. Read AGENTS.md, PROJECT_STATE.md, and the active plan named in .plans/ACTIVE (if present) before
@@ -325,37 +147,12 @@ You are running headless inside this task's isolated Git worktree. The current d
 """ if mcp else "")
 
 
-def fallback_message(task, paths):
-    subject_goal = task["goal"].splitlines()[0][:60].rstrip(".")
-    return (
-        f"feat(agent): {task['task_id']} {subject_goal}\n\n"
-        f"The agent did not supply a commit message; this one was generated by the bridge.\n\n"
-        f"Goal:\n{task['goal']}\n\nChanged files:\n{bullets(paths)}\n"
-    )
-
-
-def commit(task, paths, message_file, summary, model):
-    message = message_file.read_text(encoding="utf-8").strip() if message_file.exists() else ""
-    if not message:
-        message = fallback_message(task, paths).strip()
-    trailer = [
-        "",
-        f"AgentForge-Task: {task['task_id']} (milestone {task['milestone_id']})",
-        f"AgentForge-Agent: Claude Code via scripts/agents/claude-code-bridge"
-        + (f" (model {model})" if model else ""),
-        "Co-Authored-By: Claude <noreply@anthropic.com>",
-    ]
-    if summary:
-        message += "\n\nAgent summary:\n" + summary.strip()[-MAX_SUMMARY_CHARS:]
-    message += "\n" + "\n".join(trailer) + "\n"
-    subprocess.run(["git", "add", "--all", "--", *paths], check=True)
-    result = subprocess.run(["git", "commit", "-F", "-"], input=message, text=True, capture_output=True)
-    sys.stdout.write(result.stdout)
-    sys.stderr.write(result.stderr)
-    return result.returncode
-
-
 def self_test():
+    # The shared fixture pins this decoder to the Rust encoder (ADR-0058); the kit asserts the
+    # same bytes from the other side.
+    task = bridge_kit.decode_prompt(bridge_kit.FIXTURE.read_bytes())
+    assert task["task_id"] == "P6-M004-T0001"
+
     sample = {
         "contract_version": "1",
         "task_id": "P9-M001-T0001",
@@ -372,32 +169,9 @@ def self_test():
         "expected_outputs": ["tests", "docs"],
         "evidence_requirements": [],
     }
-    encoded = encode_prompt(sample)
-    assert decode_prompt(encoded) == sample, "round trip"
-    goal_header = f"goal {len(sample['goal'].encode())}\n".encode()
-    assert goal_header in encoded
-    for broken in [
-        encoded[:-3],
-        b"wrong-header\n" + encoded[len(HEADER):],
-        encoded.replace(goal_header, b"goal xx\n", 1),
-        encoded.replace(goal_header, b"goal 999\n", 1),
-        encoded.replace(b"task_id", b"task_ix", 1),
-        encoded + b"extra",
-    ]:
-        try:
-            decode_prompt(broken)
-        except (PromptError, UnicodeDecodeError):
-            continue
-        raise AssertionError(f"accepted malformed prompt: {broken[:40]!r}")
-    allowed, forbidden = sample["allowed_paths"], sample["forbidden_paths"]
-    assert boundary_violations(["crates/example/src/lib.rs", "docs/EXAMPLE.md"], allowed, forbidden) == []
-    assert boundary_violations(["crates/examples/x.rs"], allowed, forbidden) == ["crates/examples/x.rs"]
-    assert boundary_violations(["README.md"], allowed, forbidden) == ["README.md"]
-    assert boundary_violations(["crates/example/secret/key"], allowed, forbidden) == [
-        "crates/example/secret/key"
-    ]
     assert "P9-M001-T0001" in instructions(sample, Path("/tmp/msg"))
     assert "check_changes" not in instructions(sample, Path("/tmp/msg"))
+
     # Finding 22: a run_local_commands task may run files in its own allowed paths, and only those.
     scripted = dict(
         sample, allowed_paths=["scripts/tool", "./docs/X.md", "has space/x", "crates/example/", ".github/ci.yml"]
@@ -413,13 +187,14 @@ def self_test():
     assert "run files inside your allowed paths" in instructions(scripted, Path("/tmp/msg"), scripts=True)
     assert "run files inside your allowed paths" not in instructions(scripted, Path("/tmp/msg"))
     assert "check_changes" in instructions(sample, Path("/tmp/msg"), mcp=True)
+
     with tempfile.TemporaryDirectory() as scratch:
         assert mcp_arguments(sample, None, scratch, "/wt", None) == ([], []), "no use_mcp_tools, no gateway"
         gated = dict(sample, capabilities=sample["capabilities"] + ["use_mcp_tools"])
         try:
             mcp_arguments(gated, None, scratch, "/wt", None)
             raise AssertionError("use_mcp_tools without forge must refuse")
-        except BridgeError:
+        except bridge_kit.BridgeError:
             pass
         args, tools = mcp_arguments(gated, "/bin/forge", scratch, "/wt", "/project")
         assert args[0] == "--mcp-config" and args[2] == "--strict-mcp-config" and tools == ["mcp__agentforge"]
@@ -431,15 +206,9 @@ def self_test():
         ], server["args"]
         args, _ = mcp_arguments(gated, "/bin/forge", scratch, "/wt", None)
         assert "--root" not in json.loads(Path(args[1]).read_text())["mcpServers"]["agentforge"]["args"]
-    common = "/repo/.git"
-    assert worktree_target_dir(common, common, "/target") is None, "main checkout keeps its target"
-    assert (
-        worktree_target_dir("/repo/.git/worktrees/P1-M007-T0003", common, "/target")
-        == "/target/agentforge-worktrees/P1-M007-T0003"
-    )
-    assert worktree_target_dir("/repo/.git/worktrees/x", common, "/target", "/chosen") is None
+
     print("claude-code-bridge self-test passed")
-    return 0
+    return bridge_kit.EXIT_COMMITTED
 
 
 def main():
@@ -455,24 +224,24 @@ def main():
 
     try:
         raw_prompt = sys.stdin.buffer.read()
-        task = decode_prompt(raw_prompt)
-    except (PromptError, UnicodeDecodeError) as error:
+        task = bridge_kit.decode_prompt(raw_prompt)
+    except (bridge_kit.PromptError, UnicodeDecodeError) as error:
         print(f"claude-code-bridge: invalid task prompt: {error}", file=sys.stderr)
-        return 2
+        return bridge_kit.EXIT_INVALID
     if not task["allowed_paths"]:
         print("claude-code-bridge: the task declares no allowed paths", file=sys.stderr)
-        return 2
+        return bridge_kit.EXIT_INVALID
 
     with tempfile.TemporaryDirectory(prefix="agentforge-bridge-") as scratch:
         message_file = Path(scratch) / "COMMIT_MSG"
         (Path(scratch) / "contract.txt").write_bytes(raw_prompt)
         try:
             mcp_args, mcp_tools = mcp_arguments(
-                task, arguments.forge or shutil.which("forge"), scratch, Path.cwd(), project_root()
+                task, arguments.forge or shutil.which("forge"), scratch, Path.cwd(), bridge_kit.project_root()
             )
-        except BridgeError as error:
+        except bridge_kit.BridgeError as error:
             print(f"claude-code-bridge: {error}", file=sys.stderr)
-            return 2
+            return bridge_kit.EXIT_INVALID
         command = [
             arguments.claude,
             "-p",
@@ -497,7 +266,7 @@ def main():
         if arguments.dry_run:
             print(command[2])
             print("command:", " ".join(part if part != command[2] else "<instructions>" for part in command))
-            return 0
+            return bridge_kit.EXIT_COMMITTED
 
         print(f"claude-code-bridge: running Claude Code for {task['task_id']}", flush=True)
         agent = subprocess.run(
@@ -505,7 +274,7 @@ def main():
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
-            env=agent_environment(),
+            env=bridge_kit.agent_environment("claude-code-bridge"),
         )
         sys.stdout.write(agent.stdout)
         sys.stderr.write(agent.stderr)
@@ -513,22 +282,34 @@ def main():
             print(f"claude-code-bridge: Claude Code exited {agent.returncode}; nothing committed", file=sys.stderr)
             return agent.returncode
 
-        paths = changed_paths()
+        paths = bridge_kit.changed_paths()
         if not paths:
             print("claude-code-bridge: the agent made no changes", file=sys.stderr)
-            return 3
-        violations = boundary_violations(paths, task["allowed_paths"], task["forbidden_paths"])
+            return bridge_kit.EXIT_NO_CHANGES
+        violations = bridge_kit.boundary_violations(paths, task["allowed_paths"], task["forbidden_paths"])
         if violations:
             print("claude-code-bridge: changes outside the task boundary; nothing committed:", file=sys.stderr)
             for path in violations:
                 print(f"  {path}", file=sys.stderr)
-            return 4
+            return bridge_kit.EXIT_PATH_VIOLATION
         print(f"claude-code-bridge: committing {len(paths)} changed path(s); the pre-commit gate runs now", flush=True)
-        if commit(task, paths, message_file, agent.stdout, arguments.model) != 0:
+        if (
+            bridge_kit.commit(
+                task,
+                paths,
+                message_file,
+                agent.stdout,
+                AGENT_NAME,
+                BRIDGE_PATH,
+                arguments.model,
+                CO_AUTHOR,
+            )
+            != 0
+        ):
             print("claude-code-bridge: commit or pre-commit gate failed; nothing committed", file=sys.stderr)
-            return 5
+            return bridge_kit.EXIT_COMMIT_FAILED
     print("claude-code-bridge: committed")
-    return 0
+    return bridge_kit.EXIT_COMMITTED
 
 
 if __name__ == "__main__":

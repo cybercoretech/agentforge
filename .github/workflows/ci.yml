@@ -47,6 +47,12 @@ jobs:
       - name: Self-test real-agent bridge
         run: ./scripts/agents/claude-code-bridge --self-test
 
+      - name: Self-test shared bridge kit
+        run: python3 scripts/agents/bridge_kit.py --self-test
+
+      - name: Conformance-test real-agent bridges
+        run: python3 scripts/agents/bridge_conformance.py
+
       - name: Self-test milestone tagger
         run: ./scripts/tag-milestone --self-test
 

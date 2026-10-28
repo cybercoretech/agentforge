@@ -51,28 +51,38 @@ both stdin and stdout to be terminals; it fails closed in CI pipes and daemon ex
 The normal task preflight still applies: the task must exist, its managed worktree must be clean
 and verified, and required approvals and capabilities must already be present.
 
-## Real agents: the Claude Code bridge
+## Real agents: bridges and the shared kit
 
 Real coding agents read natural-language instructions, not the length-delimited
 `agentforge-task-prompt-v1` document, and a task's changes only reach `forge task diff` and
 `forge task integrate` once they are committed on the task branch.
-`scripts/agents/claude-code-bridge` (Python 3, standard library) closes that gap for Claude Code:
+
+A **bridge** closes that gap. Every bridge does the same four things (ADR-0043):
 
 1. It strictly decodes the task prompt from stdin; malformed input exits 2 before any agent runs.
-2. It runs `claude -p` headless in the task worktree. The instructions cover the goal, non-goals,
-   allowed and forbidden paths, expected outputs, evidence, gates, and the repository's
-   `AGENTS.md`. Permissions are `acceptEdits` plus a bounded tool allowlist: read/edit tools,
-   `cargo`, `./scripts/gate.sh`, read-only `git`, and `ls`. `git commit`/`push`/`reset`/`checkout`/
-   `clean` and web tools are denied.
+2. It runs the agent headless in the task worktree, under a bounded tool policy the bridge states.
 3. It lists every changed path and refuses (exit 4, nothing committed, worktree kept) if any path
    is outside the task's allowed paths or inside a forbidden one.
 4. It commits the changes itself, using the detailed message the agent writes to a scratch file,
    plus `AgentForge-Task`/`AgentForge-Agent` trailers. The repository's pre-commit hook runs on
    that commit, and a hook or gate failure exits 5.
 
-Exit codes: 0 committed, 2 invalid input, 3 no changes, 4 path violation, 5 commit/gate failure;
-anything else is Claude Code's own exit status. As with any adapter, exit 0 is evidence, not
-acceptance: project gates, review, and `forge task accept` still follow.
+Steps 1, 3, and 4 are identical for every agent, so they live in
+`scripts/agents/bridge_kit.py` (ADR-0058). A bridge file contains only what is agent-specific: the
+instruction text, the command line, the permission or sandbox policy, the MCP configuration shape,
+and the co-author trailer. `scripts/agents/claude-code-bridge` is the reference bridge.
+
+Exit codes, which every bridge preserves: 0 committed, 2 invalid input or configuration, 3 no
+changes, 4 path violation, 5 commit/pre-commit failure; anything else is the agent's own exit
+status. As with any adapter, exit 0 is evidence, not acceptance: project gates, review, and
+`forge task accept` still follow.
+
+The prompt format is pinned by `scripts/agents/fixtures/task-prompt-v1.txt`. A Rust test asserts
+that `render_task_prompt` produces exactly those bytes, and the kit's self-test asserts that its
+decoder reads exactly those bytes and re-encodes them identically, so the two implementations
+cannot drift apart silently.
+
+### The Claude Code bridge
 
 Profile (the environment is cleared, so pass what Claude Code and your toolchain need):
 
@@ -89,6 +99,10 @@ timeout_ms=3600000
 max_output_bytes=8388608
 ```
 
+The bridge runs `claude -p` with `--permission-mode acceptEdits` and a bounded tool allowlist: read
+and edit tools, `cargo`, `./scripts/gate.sh`, read-only `git`, and `ls`. `git commit`/`push`/
+`reset`/`checkout`/`clean` and web tools are denied.
+
 For tasks that hold `run_local_commands`, the bridge also lets Claude Code run files inside the
 task's own allowed paths: `./<path>`, `python3 <path>`, and `bash <path>`, with any arguments
 (P2-M035). An agent can then run the self-tests of scripts it writes; before, only `cargo`,
@@ -102,14 +116,28 @@ profile, because the cleared environment has no useful `PATH`; see
 [MCP_GATEWAY.md](MCP_GATEWAY.md#using-it-with-the-claude-code-bridge).
 
 Add `argument=--model` and `argument=<model>` to pin a model. Use `--dry-run` (reads a prompt on
-stdin and prints the instructions) to preview what the agent will be told, and `--self-test` (also
-run in CI) to check the decoder and path rules. In a linked worktree the bridge also gives the
-agent an isolated `CARGO_TARGET_DIR` (`<target>/agentforge-worktrees/<worktree name>`, the same one
-`scripts/gate.sh` uses), so builds the agent runs directly cannot collide with other checkouts.
+stdin and prints the instructions) to preview what the agent will be told.
+
+### Working on a bridge
+
+```text
+python3 scripts/agents/bridge_kit.py --self-test       # the shared kit, including the fixture
+./scripts/agents/claude-code-bridge --self-test        # the bridge's own policy
+python3 scripts/agents/bridge_conformance.py           # every registered bridge, end to end
+python3 scripts/agents/bridge_conformance.py --list    # which bridges are registered
+```
+
+The conformance suite drives each bridge against a stub agent in a throwaway Git repository and
+covers in-boundary work, an out-of-boundary write, a forbidden path, renames in both directions,
+agent failure, no changes, a missing commit message, a failing pre-commit hook, a dry run, and
+malformed input. A bridge that does not pass is not first-party: adding one means adding a registry
+entry in `scripts/agents/bridge_conformance.py`, not new cases. All three commands run in CI.
 
 Every run's full stdout and stderr, whether bridge or agent, are saved under
 `.forge/evidence/<task-id>/` and referenced by the `AgentFinished` audit event. `forge task launch`
 prints the agent's exit code and the log paths. When the agent fails, it prints the last lines of
-output and exits 1. The path check runs after the agent, so it is a
-commit guard, not a sandbox. See [`DOGFOODING.md`](DOGFOODING.md) for a full run on AgentForge
-itself.
+output and exits 1. In a linked worktree the bridge also gives the agent an isolated
+`CARGO_TARGET_DIR` (`<target>/agentforge-worktrees/<worktree name>`, the same one
+`scripts/gate.sh` uses), so builds the agent runs directly cannot collide with other checkouts.
+The path check runs after the agent, so it is a commit guard, not a sandbox. See
+[`DOGFOODING.md`](DOGFOODING.md) for a full run on AgentForge itself.

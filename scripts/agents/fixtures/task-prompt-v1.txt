@@ -1,0 +1,47 @@
+agentforge-task-prompt-v1
+contract_version 1
+1
+task_id 13
+P6-M004-T0001
+milestone_id 7
+P6-M004
+primary_role 11
+implementer
+goal 68
+Add the shared bridge kit
+and keep the exit codes stable (café ✓)
+non_goals 2
+item 13
+No new bridge
+item 30
+No change to the prompt format
+dependency_task_ids 0
+allowed_paths 2
+item 14
+scripts/agents
+item 22
+docs/AGENT_PROFILES.md
+forbidden_paths 1
+item 23
+scripts/agents/fixtures
+capabilities 3
+item 17
+write_owned_paths
+item 18
+run_local_commands
+item 13
+use_mcp_tools
+required_approvals 1
+item 28
+activate_implementation_plan
+required_gates 1
+item 4
+full
+expected_outputs 2
+item 3
+kit
+item 17
+conformance suite
+evidence_requirements 1
+item 16
+self-test output
