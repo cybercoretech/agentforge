@@ -31,6 +31,21 @@ The completion records below cite CI run IDs from the retired predecessor reposi
 any repository, so they cannot be verified from here. Records from `0.4.0` onward cite runs in
 `cybercoretech/agentforge` and are checkable (ADR-0056, Phase 0).
 
+## P6-M004 completion evidence
+
+- Approved plan: `.plans/P6-M004-shared-bridge-kit.plan.md`; ADR-0058 amends the bridge design of
+  ADR-0043 by splitting it into a kit and thin adapters.
+- Implementation commit `cfebb36`; CI `40633818472` is green on all seven jobs, including the kit
+  self-test and the conformance suite that now run in `Repository policy`.
+- `scripts/agents/bridge_kit.py` owns the prompt codec, path boundary, changed-path discovery,
+  worktree target directory, neutral MCP argv, and the commit contract. `claude-code-bridge` holds
+  only Claude-specific policy, with byte-identical `--dry-run` output for three task shapes.
+- `scripts/agents/fixtures/task-prompt-v1.txt` is asserted by the Rust encoder
+  (`the_shared_fixture_matches_the_encoder_and_the_parser`) and by the kit's decoder, closing the
+  encoder/decoder drift gap. Workspace tests: 349 → 350.
+- `scripts/agents/bridge_conformance.py` runs eleven end-to-end cases per bridge against a stub
+  agent. Disabling the boundary check fails four of them, which is how the suite was verified.
+
 ## P6-M003 completion evidence
 
 - Approved plan: `.plans/P6-M003-release-v0-4-0.plan.md`.

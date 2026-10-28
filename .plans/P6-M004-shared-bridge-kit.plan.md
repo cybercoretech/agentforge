@@ -1,6 +1,6 @@
 # Plan: P6-M004 — Shared agent-bridge kit
 
-Status: Approved
+Status: Complete
 Milestone: P6-M004
 Created: 2026-10-27
 
@@ -198,20 +198,31 @@ P6-M005 means adding a registry entry, not new cases.
 
 ## Acceptance criteria
 
-- [ ] A checked-in `agentforge-task-prompt-v1` fixture is asserted by both the Rust encoder and the
+- [x] A checked-in `agentforge-task-prompt-v1` fixture is asserted by both the Rust encoder and the
       kit's decoder.
-- [ ] The shared kit owns the codec, boundary rules, changed-path discovery, and commit contract.
-- [ ] The Claude Code bridge keeps identical exit codes, trailers, and instruction text.
-- [ ] The conformance suite covers in-boundary work, out-of-boundary writes, forbidden paths,
+- [x] The shared kit owns the codec, boundary rules, changed-path discovery, and commit contract.
+- [x] The Claude Code bridge keeps identical exit codes, trailers, and instruction text.
+- [x] The conformance suite covers in-boundary work, out-of-boundary writes, forbidden paths,
       renames out of bounds, agent failure, no changes, a missing message, a failing pre-commit
       hook, a dry run, and malformed input.
-- [ ] The suite runs in CI and reports per-bridge results.
-- [ ] No new runtime dependency and no change to the adapter contract.
+- [x] The suite runs in CI and reports per-bridge results.
+- [x] No new runtime dependency and no change to the adapter contract.
 
 ## Completion record
 
-Implementation commit:
-CI run:
-CI result:
-Completed:
-Notes:
+Implementation commit: `cfebb36`
+CI run: `40633818472` — push event on `cfebb36`, seven of seven jobs green, including the new
+`Repository policy` steps that run the kit self-test and the conformance suite
+CI result: success
+Completed: 2026-10-27
+Notes: Behavior parity was checked, not assumed. The pre-refactor bridge's `--dry-run` output was
+captured for the plain, `run_local_commands`, and `use_mcp_tools` task shapes, and the ported
+bridge reproduced all three byte for byte after normalizing the random scratch path (2171, 2601,
+and 2647 bytes). The suite is itself mutation-tested: disabling the boundary check makes four of
+eleven cases fail, so a green run means something.
+
+The fixture closed a real gap. The Python decoder previously round-tripped only against its own
+encoder while the real producer is `render_task_prompt` in Rust; both now assert
+`scripts/agents/fixtures/task-prompt-v1.txt` byte for byte, so either side drifting fails a test.
+The workspace suite went from 349 to 350 tests. No new dependency, no MSRV change, and the adapter
+contract, prompt format, and profile format are untouched.

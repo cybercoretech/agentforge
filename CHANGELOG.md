@@ -15,6 +15,15 @@ All notable AgentForge changes are documented here. The format follows
   policy engine, forwarded unchanged, and audited, and a failing server is contained (P3-M006,
   ADR-0055).
 
+### Changed
+
+- Real-agent bridges share one kit. `scripts/agents/bridge_kit.py` owns the prompt codec, the path
+  boundary, changed-path discovery, and the commit contract, so every bridge enforces the same
+  rules; `claude-code-bridge` keeps only Claude-specific policy (ADR-0058).
+- The `agentforge-task-prompt-v1` format is pinned by a checked-in fixture that both the Rust
+  encoder and the Python decoder assert, so the two cannot drift apart.
+- The self-test and a new eleven-case conformance suite for bridges run in CI.
+
 ### Fixed
 
 - The audit append lock no longer starves a writer under contention. Waiting is tied to observed
