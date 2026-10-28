@@ -62,3 +62,4 @@ ADRs are permanent numbered records of consequential design decisions.
 | ADR-0054 | Accepted | An attested CycloneDX SBOM for every release |
 | ADR-0055 | Accepted | External MCP servers behind the gateway |
 | ADR-0056 | Accepted | AgentForge 1.0 strategy: evidence first, one bridge kit, two first-party bridges |
+| ADR-0057 | Accepted | Progress-based audit append-lock waiting |
