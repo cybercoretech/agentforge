@@ -1,6 +1,6 @@
 # Plan: P6-M006 — Codex preflight and the corrected sandbox finding
 
-Status: Approved
+Status: Complete
 Milestone: P6-M006
 Created: 2026-10-27
 
@@ -214,24 +214,51 @@ package, no MSRV change.
 
 ## Acceptance criteria
 
-- [ ] `--preflight` runs by default and exits 2, with a named cause and remedy, when the version
+- [x] `--preflight` runs by default and exits 2, with a named cause and remedy, when the version
       probe, a required flag, `workspace-write`, the sandbox runtime, the local provider, or a write
       root fails.
-- [ ] `--no-preflight` skips it; `--dry-run` skips it and never invokes the agent.
-- [ ] The assigned target directory is created before Codex is started.
-- [ ] Known Codex failures (missing binary, missing/old Ollama, removed wire API, bwrap failure,
+- [x] `--no-preflight` skips it; `--dry-run` skips it and never invokes the agent.
+- [x] The assigned target directory is created before Codex is started.
+- [x] Known Codex failures (missing binary, missing/old Ollama, removed wire API, bwrap failure,
       blocked write, missing credentials) each add one hint while preserving the exit status.
-- [ ] `conformance_stub.py` answers `--version` and `exec --help`, and all twenty-two cases pass.
-- [ ] `codex_e2e.py` drives the real binary to a commit, refuses an out-of-boundary write at exit 4,
+- [x] `conformance_stub.py` answers `--version` and `exec --help`, and all twenty-two cases pass.
+- [x] `codex_e2e.py` drives the real binary to a commit, refuses an out-of-boundary write at exit 4,
       and prints `SKIP` with exit 0 when Codex is absent.
-- [ ] ADR-0060 records the correction; ADR-0059, `PROJECT_STATE.md`, and `docs/AGENT_PROFILES.md` no
+- [x] ADR-0060 records the correction; ADR-0059, `PROJECT_STATE.md`, and `docs/AGENT_PROFILES.md` no
       longer state the two false limits.
-- [ ] OpenCode is P6-M007 and `forge doctor --agents` is P6-M008 everywhere forward-looking.
+- [x] OpenCode is P6-M007 and `forge doctor --agents` is P6-M008 everywhere forward-looking.
 
 ## Completion record
 
-Implementation commit:
-CI run:
-CI result:
-Completed:
-Notes:
+Implementation commit: `7558a4f`
+CI run: `40637506732` — push event on `7558a4f`, seven of seven jobs green, including the new
+`End-to-end test Codex bridge` step, which reported `SKIP: no Codex CLI found` on the runner.
+Pages: `40637506754`, success.
+CI result: success
+Completed: 2026-10-27
+Notes: `--preflight` verifies the executable's version, every long flag the built command uses
+against `codex exec --help` plus `workspace-write`, the Linux sandbox runtime for a Codex identity
+(`bwrap` and a user namespace), a configured local provider (Ollama 0.13.4+ on 11434, LM Studio on
+1234), and every write root, creating the assigned `CARGO_TARGET_DIR` first. Failures exit 2 with
+one cause and one remedy. `--no-preflight` skips the checks; `--dry-run` never runs them.
+
+Verified by failing on purpose rather than only by passing: the self-test drives a stand-in that
+answers `--version` and `exec --help`, then removes `--add-dir` and `workspace-write` in turn, exits
+non-zero from `--version`, reports a 0.13.3 Ollama, refuses a missing root, and proves a dry run
+succeeds with a non-existent executable. The stub agent identifies as `conformance-stub`, so the
+Codex-only runtime probe does not require bubblewrap in CI, where the runner image does not install
+it.
+
+The checked-in `scripts/agents/codex_e2e.py` drove the real `codex-cli 0.165.0` through the bridge:
+one commit with the model's own `feat(stub): ...` message, both AgentForge trailers, and the
+sandboxed file; then a write outside the task boundary exited 4, committed nothing, and left the
+offending file for review. On the `ubuntu-24.04` runner it prints `SKIP` and exits 0, which is the
+honest result, not a pass dressed up as one.
+
+The operator-facing failure path was exercised directly: with no Ollama listening, the bridge exits
+2 at preflight with `ollama is not reachable ...; start it with 'ollama serve'` instead of Codex's
+`OSS setup failed`; with a missing executable it exits 2 naming the path. Known runtime failures
+still map to one hint while Codex's exit status is preserved.
+
+Conformance is 22/22 across two bridges with no new case. No new dependency, no Rust change; the
+workspace stays at 350 tests and the new coverage is Python.

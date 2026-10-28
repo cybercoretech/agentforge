@@ -9,18 +9,15 @@
 
 ## Current phase
 
-Phase A of 1.0 is in progress (ADR-0056). The shared bridge kit and the Codex CLI bridge are
-complete: bridges are thin adapters over one kit, and conformance — twenty-two end-to-end cases —
-is the price of being first-party. A Codex preflight and a reproducible end-to-end harness are in
-progress (P6-M006). OpenCode is next (P6-M007), then provider-neutral `forge doctor --agents`
-(P6-M008).
+Phase A of 1.0 is in progress (ADR-0056). The shared bridge kit, the Codex CLI bridge, and its
+preflight are complete: bridges are thin adapters over one kit, and conformance — twenty-two
+end-to-end cases — is the price of being first-party. OpenCode is next (P6-M007), then
+provider-neutral `forge doctor --agents` (P6-M008).
 
 ## Active milestone
 
-P6-M006 — Codex preflight and the corrected sandbox finding. The approved plan is
-`.plans/P6-M006-codex-preflight.plan.md`; ADR-0060 corrects the record and adds the preflight
-obligation. `v0.4.0` is the latest release, and every completed milestone is tagged
-`milestone/<ID>`.
+No active milestone. P6-M006 — the Codex preflight and the corrected sandbox finding — is complete.
+`v0.4.0` is the latest release, and every completed milestone is tagged `milestone/<ID>`.
 
 ## Known issues
 
@@ -32,6 +29,33 @@ The completion records below cite CI run IDs from the retired predecessor reposi
 (`darkstardevx/agentforge`). They describe work that did happen, but the IDs no longer resolve in
 any repository, so they cannot be verified from here. Records from `0.4.0` onward cite runs in
 `cybercoretech/agentforge` and are checkable (ADR-0056, Phase 0).
+
+## P6-M006 completion evidence
+
+- Approved plan: `.plans/P6-M006-codex-preflight.plan.md`; ADR-0060 amends ADR-0059 and records the
+  correction and the preflight obligation.
+- Implementation commit `7558a4f`; CI `40637506732` is green on all seven jobs, including the new
+  `End-to-end test Codex bridge` step. Pages `40637506754` is green.
+- The Codex bridge now runs an ordered preflight by default: executable `--version`; every long flag
+  the built command uses against `codex exec --help`, plus `workspace-write`; the Linux sandbox
+  runtime for a Codex identity (`bwrap` and a user namespace); a configured local provider (Ollama
+  0.13.4+ on `11434`, LM Studio on `1234`); and every write root, creating the assigned
+  `CARGO_TARGET_DIR` first. A failure exits 2 with one cause and one remedy. `--no-preflight` skips
+  it; `--dry-run` never runs it.
+- Known Codex failures each add one actionable hint while Codex's own exit status is preserved:
+  missing or old Ollama, a removed wire API, a bubblewrap failure, a blocked write, missing
+  credentials, and an endpoint without the Responses API. There is no unsandboxed fallback.
+- `scripts/agents/codex_e2e.py` drove the real `codex-cli 0.165.0` to a commit with the model's own
+  message and both trailers, then to an exit-4 refusal that committed nothing and kept the offending
+  file. On the CI runner it reported `SKIP: no Codex CLI found` and exited 0.
+- The operator-facing failure path was measured: with no Ollama listening, the bridge exits 2 at
+  preflight with the `ollama serve` remedy instead of Codex's `OSS setup failed`; a missing
+  executable exits 2 naming the path.
+- Conformance is 22/22 across two bridges with no new case. The conformance stub now answers
+  `--version` and `exec --help`, so the suite exercises the preflight instead of bypassing it.
+- **Corrected:** the P6-M005 claim that no live turn was possible and that a mise-installed binary
+  could not sandbox itself was wrong. The `bwrap: execvp ...` failure came from a degenerate
+  synthetic permission profile, and a real turn runs through the bridge without credentials.
 
 ## P6-M005 completion evidence
 
