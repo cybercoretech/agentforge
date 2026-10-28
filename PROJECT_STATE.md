@@ -9,15 +9,14 @@
 
 ## Current phase
 
-Evidence restoration for 1.0 (ADR-0056, Phase 0). Self-hosting is proven: milestones are
-implemented by a real agent (Claude Code) through AgentForge itself, with hermetic gates, audited
-evidence, and operator review. Phase 0 restores verifiable evidence on the canonical repository — a
-CI gate on `main`, and a published release with binaries, SBOM, and provenance — before further 1.0
-capability work is approved. Phase A then adds a shared bridge kit with Codex CLI and OpenCode.
+Phase A of 1.0 is in progress (ADR-0056). The shared bridge kit and the Codex CLI bridge are
+complete: bridges are thin adapters over one kit, and conformance — twenty-two end-to-end cases —
+is the price of being first-party. OpenCode is next (P6-M006), then provider-neutral
+`forge doctor --agents` (P6-M007).
 
 ## Active milestone
 
-No active milestone. P6-M003 — release v0.4.0 — is complete.
+No active milestone. P6-M005 — the Codex CLI bridge — is complete.
 `v0.4.0` is the latest release, and every completed milestone is tagged `milestone/<ID>`.
 
 ## Known issues
@@ -30,6 +29,30 @@ The completion records below cite CI run IDs from the retired predecessor reposi
 (`darkstardevx/agentforge`). They describe work that did happen, but the IDs no longer resolve in
 any repository, so they cannot be verified from here. Records from `0.4.0` onward cite runs in
 `cybercoretech/agentforge` and are checkable (ADR-0056, Phase 0).
+
+## P6-M005 completion evidence
+
+- Approved plan: `.plans/P6-M005-codex-bridge.plan.md`; ADR-0059 states the Codex policy.
+- Implementation commit `4a12212`; CI `40635327973` is green on all seven jobs, including the new
+  `Self-test Codex bridge` step in `Repository policy`.
+- `scripts/agents/codex-bridge` runs `codex exec` on the shared kit. The argv builder refuses
+  `--worktree`, `danger-full-access`, and both `--dangerously-bypass-*` flags, and the self-test
+  pins their absence, along with `-C` being the bridge's own directory, `-s workspace-write`,
+  `approval_policy="never"`, the scratch and target roots as the only `--add-dir` values, and
+  network appearing only for `use_network` tasks.
+- `$CARGO_HOME` is never granted implicitly; `--writable-dir` is the only way to add a root.
+- MCP reaches Codex as `-c mcp_servers.agentforge.*`; the values are rendered as TOML and parsed
+  back with `tomllib` before the run, and the self-test asserts they equal the kit's neutral argv.
+- Conformance is 22/22 across two bridges with no new case. Disabling the Codex boundary check
+  fails four cases and exits 1.
+- Measured sandbox behavior with `codex-cli 0.165.0`: writes inside the root succeed; writes outside
+  every granted root fail with `Read-only file system` and status 1; granted external roots are
+  writable; `~/.cargo` is denied until granted; reads outside the root are permitted; network is
+  blocked while the host reaches the internet. `cargo check` with a cold target directory and a
+  read-only `$CARGO_HOME` succeeds.
+- **Unproven here:** no live Codex turn (no credentials, no local model), and `codex sandbox`
+  cannot re-exec a mise-installed binary inside its own bwrap namespace on this machine. Both are
+  recorded in ADR-0059, the plan, and `docs/AGENT_PROFILES.md`.
 
 ## P6-M004 completion evidence
 

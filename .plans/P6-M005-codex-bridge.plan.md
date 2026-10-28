@@ -1,6 +1,6 @@
 # Plan: P6-M005 — Codex CLI bridge
 
-Status: Approved
+Status: Complete
 Milestone: P6-M005
 Created: 2026-10-27
 
@@ -232,22 +232,45 @@ is the failure mode review does not catch reliably.
 
 ## Acceptance criteria
 
-- [ ] `scripts/agents/codex-bridge` runs `codex exec` on the kit with instructions on stdin, `-C`
+- [x] `scripts/agents/codex-bridge` runs `codex exec` on the kit with instructions on stdin, `-C`
       bound to the worktree, and `-s workspace-write`.
-- [ ] `--worktree`, `danger-full-access`, and both `--dangerously-bypass-*` flags are asserted absent.
-- [ ] The scratch directory and the assigned `CARGO_TARGET_DIR` are granted; `$CARGO_HOME` is not
+- [x] `--worktree`, `danger-full-access`, and both `--dangerously-bypass-*` flags are asserted absent.
+- [x] The scratch directory and the assigned `CARGO_TARGET_DIR` are granted; `$CARGO_HOME` is not
       granted implicitly, and `--writable-dir` is the only way to add roots.
-- [ ] Network is granted only when the task holds `use_network`.
-- [ ] MCP reaches Codex through `-c mcp_servers.agentforge.*`, validated with `tomllib`.
-- [ ] Local models are reachable through `--local-provider {ollama,lmstudio}`.
-- [ ] All eleven conformance cases pass for `codex` with no new cases.
-- [ ] The measured sandbox behavior and the two unproven limits (no live turn, mise/bwrap) are
+- [x] Network is granted only when the task holds `use_network`.
+- [x] MCP reaches Codex through `-c mcp_servers.agentforge.*`, validated with `tomllib`.
+- [x] Local models are reachable through `--local-provider {ollama,lmstudio}`.
+- [x] All eleven conformance cases pass for `codex` with no new cases.
+- [x] The measured sandbox behavior and the two unproven limits (no live turn, mise/bwrap) are
       recorded in the docs, not softened.
 
 ## Completion record
 
-Implementation commit:
-CI run:
-CI result:
-Completed:
-Notes:
+Implementation commit: `4a12212`
+CI run: `40635327973` — push event on `4a12212`, seven of seven jobs green, including the new
+`Repository policy` step that runs `codex-bridge --self-test`
+CI result: success
+Completed: 2026-10-27
+Notes: Conformance is 22/22 across two bridges with no case added for Codex, which is the point of
+the kit: the eleven adversarial cases the Claude bridge already answered, Codex answers unchanged.
+The suite is not vacuous for the new bridge either — disabling its boundary check fails four cases
+and exits 1.
+
+The sandbox policy was measured rather than assumed, with `codex sandbox --permission-profile` and
+an explicit `[permissions.<name>.filesystem]` map: writes inside the root succeed; writes outside
+every granted root fail with `Read-only file system` and status 1; an explicitly granted external
+root is writable; `~/.cargo` is denied until granted; reads outside the root are permitted; network
+is blocked in the sandbox while the host returns 200. A cold-target-directory `cargo check` against
+a read-only `$CARGO_HOME` succeeds, so the only real cost is fetching an uncached dependency, which
+needs `use_network` plus an explicit `--writable-dir "$CARGO_HOME"`.
+
+Two limits are recorded rather than softened. First, no live Codex turn was run: this machine has no
+credentials (`codex login status` reports not logged in) and no local model, so `--local-provider`
+is verified by flag construction and refusal of unknown providers, not by inference. Second,
+`codex sandbox` cannot re-exec a mise-installed binary inside its own bwrap namespace here
+(`bwrap: execvp .../codex: No such file or directory`, while the same binary runs under a plain
+`bwrap --ro-bind / /`), so the measurements above used a copy of the binary in a bound path. Both
+limits are stated in `docs/AGENT_PROFILES.md` and `PROJECT_STATE.md`.
+
+No new dependency, no MSRV change, no Rust change: the workspace suite stays at 350 tests and the
+new coverage is Python.
