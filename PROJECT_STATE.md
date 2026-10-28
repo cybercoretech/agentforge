@@ -9,20 +9,22 @@
 
 ## Current phase
 
-Phase A of 1.0 is in progress (ADR-0056). The shared bridge kit, the Codex CLI bridge, and its
-preflight are complete: bridges are thin adapters over one kit, and conformance — twenty-two
-end-to-end cases — is the price of being first-party. OpenCode is in progress (P6-M007), then
-provider-neutral `forge doctor --agents` (P6-M008).
+Phase A of 1.0 is in progress (ADR-0056). The shared bridge kit, the Codex CLI bridge, its
+preflight, and the OpenCode bridge are complete: bridges are thin adapters over one kit, and
+conformance — thirty-three end-to-end cases — is the price of being first-party. Provider-neutral
+`forge doctor --agents` is next (P6-M008).
 
 ## Active milestone
 
-P6-M007 — the OpenCode bridge and its worktree guard — is approved and awaiting implementation. The
-plan is `.plans/P6-M007-opencode-bridge.plan.md`; ADR-0061 records the policy and the two refusals.
+No active milestone. P6-M007 — the OpenCode bridge and its worktree guard — is complete.
 `v0.4.0` is the latest release, and every completed milestone is tagged `milestone/<ID>`.
 
 ## Known issues
 
 - Findings 19 and 20 are released in `v0.3.1`; `v0.3.0` workers still have them.
+- OpenCode 2.2.0 has no operating-system sandbox and no usable headless MCP surface. Its bridge is
+  policy-configured, refuses `use_mcp_tools` tasks with a cause and a remedy, and does not confine
+  `shell` for tasks that hold `run_local_commands`.
 
 ## Evidence provenance
 
@@ -30,6 +32,30 @@ The completion records below cite CI run IDs from the retired predecessor reposi
 (`darkstardevx/agentforge`). They describe work that did happen, but the IDs no longer resolve in
 any repository, so they cannot be verified from here. Records from `0.4.0` onward cite runs in
 `cybercoretech/agentforge` and are checkable (ADR-0056, Phase 0).
+
+## P6-M007 completion evidence
+
+- Approved plan: `.plans/P6-M007-opencode-bridge.plan.md`; ADR-0061 records the policy, the guard,
+  and the two refusals.
+- Implementation commit `5e0eab6`; CI `40642114370` is green on all seven jobs, including the new
+  `Self-test OpenCode bridge` and `End-to-end test OpenCode bridge` steps. Pages `40642114286` is
+  green.
+- `opencode v2.2.0`: the bridge runs `run --standalone --format json --agent agentforge-<hex>` with
+  the instructions on stdin and the whole policy in `OPENCODE_CONFIG_CONTENT`. Project config and
+  project plugin discovery are off, and the preflight plants a probe plugin and confirms it does not
+  load.
+- `opencode_worktree_remove` ignored permission rules and deleted an active linked worktree with
+  `force: true`. The bridge-owned guard plugin removes the three worktree tools; the forced call now
+  fails with `No tool named "opencode_worktree_remove" is currently available` and the worktree
+  survives. The preflight fails if the guard's marker is missing or still lists them.
+- MCP tools are absent from the first headless request, and Code Mode's `execute` exposes `fetch`
+  outside the permission rules, so a `use_mcp_tools` task exits 2 with the cause and the remedy.
+- `scripts/agents/opencode_e2e.py` drove the real binary through a commit with the model's message
+  and both trailers, an exit-4 refusal, the failed forced worktree removal with the worktree intact,
+  and a rejected provider request with one credential hint, against a streaming stub provider on an
+  ephemeral port. On CI it reported `SKIP: no OpenCode CLI found` and exited 0.
+- Conformance is 33/33 across three bridges with no new case. The conformance stub now answers
+  `run --help` and `debug agents --standalone`.
 
 ## P6-M006 completion evidence
 

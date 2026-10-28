@@ -1,6 +1,6 @@
 # Plan: P6-M007 — The OpenCode bridge, its policy, and the worktree guard
 
-Status: Approved
+Status: Complete
 Milestone: P6-M007
 Created: 2026-10-28
 
@@ -322,31 +322,71 @@ and `node:fs`. No npm install, no lockfile, no network. No new crate, no MSRV ch
 
 ## Acceptance criteria
 
-- [ ] `opencode-bridge` runs OpenCode headless on the shared kit with the prompt on stdin,
+- [x] `opencode-bridge` runs OpenCode headless on the shared kit with the prompt on stdin,
       `--standalone`, `--format json`, a unique `--agent`, and the bridge-built
       `OPENCODE_CONFIG_CONTENT`.
-- [ ] Project configuration and project plugin discovery are disabled, and the preflight proves it
+- [x] Project configuration and project plugin discovery are disabled, and the preflight proves it
       for the installed build.
-- [ ] The guard plugin removes the three worktree tools; a forced `opencode_worktree_remove` against
+- [x] The guard plugin removes the three worktree tools; a forced `opencode_worktree_remove` against
       an active linked worktree fails and the worktree survives.
-- [ ] The policy denies secrets, questions, skills, subagents, Code Mode, and everything outside the
+- [x] The policy denies secrets, questions, skills, subagents, Code Mode, and everything outside the
       worktree; `shell` follows `run_local_commands`; network follows `use_network`; no rule asks.
-- [ ] A `use_mcp_tools` task exits 2 with a cause and a remedy, and no run silently lacks its tools.
-- [ ] The preflight exits 2 with one cause and one remedy for a missing executable, flag drift, a
+- [x] A `use_mcp_tools` task exits 2 with a cause and a remedy, and no run silently lacks its tools.
+- [x] The preflight exits 2 with one cause and one remedy for a missing executable, flag drift, a
       missing agent, a guard that did not load, project config that leaked, or a bad model.
-- [ ] NDJSON is parsed: `text` parts become the summary, `tool_use` is reported, an `error` event is a
+- [x] NDJSON is parsed: `text` parts become the summary, `tool_use` is reported, an `error` event is a
       failure even at exit 0, and anything else is forwarded untouched.
-- [ ] `conformance_stub.py` answers OpenCode's preflight questions and all thirty-three cases pass.
-- [ ] `opencode_e2e.py` proves the commit, the exit-4 refusal, the surviving worktree, and the
+- [x] `conformance_stub.py` answers OpenCode's preflight questions and all thirty-three cases pass.
+- [x] `opencode_e2e.py` proves the commit, the exit-4 refusal, the surviving worktree, and the
       provider-failure hint against the real binary, and prints `SKIP` when it is absent.
-- [ ] ADR-0061 states the finding, the mitigation, and the two refusals; no document calls the
+- [x] ADR-0061 states the finding, the mitigation, and the two refusals; no document calls the
       bridge sandboxed or fully isolated.
 
 ## Completion record
 
-Implementation commit: pending
-CI run: pending
-Pages: pending
-CI result: pending
-Completed: pending
-Notes: pending
+Implementation commit: `5e0eab6`
+CI run: `40642114370` — push event on `5e0eab6`, seven of seven jobs green, including the new
+`Self-test OpenCode bridge` step and `End-to-end test OpenCode bridge`, which reported
+`SKIP: no OpenCode CLI found` on the runner.
+Pages: `40642114286`, success.
+CI result: success
+Completed: 2026-10-28
+Notes: `opencode v2.2.0` on this machine. The bridge runs `run --standalone --format json --agent
+agentforge-<12 hex>` with the instructions on stdin and the whole policy in
+`OPENCODE_CONFIG_CONTENT`; `--standalone` keeps the background service's config and plugins out of
+the run, and the unique agent id cannot inherit a global agent's rules. Project configuration and
+project plugin discovery are off, and the preflight proves it for the installed build by planting a
+project plugin and a probe config: with project discovery enabled the planted plugin's marker
+appears, with `OPENCODE_CONFIG_PROJECT_DISABLE=true` it does not.
+
+The worktree hole was measured, not assumed. Without the guard, a forced
+`opencode_worktree_remove` against an active linked worktree deleted it, and `git worktree list`
+afterwards showed only the main checkout; a catch-all deny, `worktree`, `worktree_remove`,
+`worktree_*`, `opencode_worktree_remove`, and `tool.use` policies all left the tool working. With
+`scripts/agents/opencode-plugins/agentforge-guard` loaded, the same call fails with `No tool named
+"opencode_worktree_remove" is currently available` and the worktree survives; the plugin's marker
+records `worktree_remove` in its `before` inventory and its absence in `after`. The preflight fails
+when the marker has no `after` record, when the tools were absent before (a rename), or when they
+remain after; the bridge also clears the marker after the preflight so the run itself must write a
+fresh pair.
+
+MCP was refused on evidence: a configured server connected (`mcp connected … tools=1`) but its tool
+was absent from the first and second model request, and Code Mode's `execute` documents `fetch`,
+which would grant network access outside `use_network`. `opencode mcp list` prints `No MCP servers
+configured` in this build, so it cannot serve as a probe.
+
+The policy denies `.env`/`.env.*` for read and edit (measured: both `.env` and `sub/.env` return
+`Permission denied: read`), denies `external_directory` outside the worktree, and makes `shell`
+follow `run_local_commands` and network follow `use_network`; no rule is `ask`. The decoder keys
+`text` parts by part id, drops an exact re-emission under a new id, reports `tool_use`, treats an
+`error` event as a failure at exit 0, and forwards non-JSON lines.
+
+`scripts/agents/opencode_e2e.py` drove the real binary against a streaming OpenAI-compatible stub
+on an ephemeral port: a commit with the model's own `feat(stub): ...` message, both trailers, and
+the expected file; a write outside the task boundary exited 4 and committed nothing; the forced
+worktree removal failed and the linked worktree stayed listed; and a rejected provider request
+exited 1 with one credential hint. Conformance is 33/33 across three bridges with no new case. The
+honest limits are recorded in ADR-0061 and `docs/AGENT_PROFILES.md`: there is no OS sandbox, `shell`
+is unconfined for tasks that hold the capability, and the data directory (which holds credentials)
+is not isolated. No new dependency and no Rust change; the workspace tests are unchanged and the new
+coverage is Python.
