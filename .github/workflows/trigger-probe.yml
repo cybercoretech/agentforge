@@ -1,0 +1,20 @@
+name: Trigger probe
+
+# Temporary diagnostic for P6-M001: proves whether a fresh workflow file
+# receives push events on this repository. Removed at milestone close.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report the observed push
+        run: echo "push trigger observed for ${GITHUB_SHA}"
