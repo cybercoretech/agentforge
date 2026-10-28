@@ -172,12 +172,14 @@ argument=ollama
 `--respect-user-config` to load it (needed for custom providers). Credentials still come from
 `CODEX_HOME`.
 
-**Verified limits.** The sandbox behavior above was measured with `codex-cli 0.165.0`. A live Codex
-turn could not be run on the machine where the bridge was written: it has no Codex credentials and
-no local model, and `codex sandbox` cannot re-exec a mise-installed Codex binary inside its own
-bwrap namespace. The bridge is therefore covered by its own self-test and by the conformance suite,
-not by a recorded model run. Installing Codex outside a mise/asdf shim, or via the official
-installer, is the likely remedy for the second limit.
+**Verified limits and the correction.** The sandbox behavior above was measured with
+`codex-cli 0.165.0`. P6-M005 originally recorded that no live Codex turn could be run here and that
+the sandbox could not re-exec a mise-installed binary; ADR-0060 corrects both. A real turn was
+subsequently driven through the bridge without credentials, against a stub local provider that
+speaks the Responses API: the model issued a sandboxed command, the bridge committed the result, and
+a run that wrote outside the allowed paths exited 4 and committed nothing. The earlier
+`bwrap: execvp ...: No such file or directory` came from a degenerate synthetic permission profile,
+not from the install path.
 
 ### Working on a bridge
 

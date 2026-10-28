@@ -65,3 +65,4 @@ ADRs are permanent numbered records of consequential design decisions.
 | ADR-0057 | Accepted | Progress-based audit append-lock waiting |
 | ADR-0058 | Accepted | One bridge kit, thin per-agent bridges, and a conformance gate |
 | ADR-0059 | Accepted | Codex CLI as a first-party bridge |
+| ADR-0060 | Accepted | Bridge preflight, and a corrected Codex sandbox finding |

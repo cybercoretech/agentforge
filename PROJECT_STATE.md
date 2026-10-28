@@ -11,13 +11,16 @@
 
 Phase A of 1.0 is in progress (ADR-0056). The shared bridge kit and the Codex CLI bridge are
 complete: bridges are thin adapters over one kit, and conformance — twenty-two end-to-end cases —
-is the price of being first-party. OpenCode is next (P6-M006), then provider-neutral
-`forge doctor --agents` (P6-M007).
+is the price of being first-party. A Codex preflight and a reproducible end-to-end harness are in
+progress (P6-M006). OpenCode is next (P6-M007), then provider-neutral `forge doctor --agents`
+(P6-M008).
 
 ## Active milestone
 
-No active milestone. P6-M005 — the Codex CLI bridge — is complete.
-`v0.4.0` is the latest release, and every completed milestone is tagged `milestone/<ID>`.
+P6-M006 — Codex preflight and the corrected sandbox finding. The approved plan is
+`.plans/P6-M006-codex-preflight.plan.md`; ADR-0060 corrects the record and adds the preflight
+obligation. `v0.4.0` is the latest release, and every completed milestone is tagged
+`milestone/<ID>`.
 
 ## Known issues
 
@@ -50,9 +53,12 @@ any repository, so they cannot be verified from here. Records from `0.4.0` onwar
   writable; `~/.cargo` is denied until granted; reads outside the root are permitted; network is
   blocked while the host reaches the internet. `cargo check` with a cold target directory and a
   read-only `$CARGO_HOME` succeeds.
-- **Unproven here:** no live Codex turn (no credentials, no local model), and `codex sandbox`
-  cannot re-exec a mise-installed binary inside its own bwrap namespace on this machine. Both are
-  recorded in ADR-0059, the plan, and `docs/AGENT_PROFILES.md`.
+- **Corrected by ADR-0060 (P6-M006):** the two limits recorded here were wrong. A live Codex turn
+  was subsequently run end to end through the bridge with no credentials, using a stub local
+  provider that speaks the Responses API; it issued a sandboxed `exec_command`, produced a commit
+  with both trailers, and a path-violating run exited 4 with nothing committed. The mise-installed
+  binary also sandboxes correctly: the `bwrap: execvp ...` failure came from a degenerate synthetic
+  permission profile with an empty `[permissions.ws]` table, not from the install path.
 
 ## P6-M004 completion evidence
 

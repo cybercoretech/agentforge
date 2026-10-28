@@ -93,7 +93,10 @@ Trade-offs:
   surprise an operator whose Codex configuration does something unusual;
 - a task that must fetch new crates needs two extra grants, and that is friction by design;
 - the sandbox is a second policy surface to keep in step with the after-the-fact check;
-- the active sandbox implementation is platform-specific, and this machine could not run a real
-  Codex session at all (no credentials, and `codex sandbox` cannot re-exec a mise-installed binary
-  inside its own bwrap namespace). The policy above is therefore verified by construction and by
-  conformance, not by a live model run; that gap is recorded rather than papered over.
+- the active sandbox implementation is platform-specific. This ADR originally recorded that this
+  machine could not run a real Codex session and that `codex sandbox` could not re-exec a
+  mise-installed binary inside its own bwrap namespace. **ADR-0060 corrects both:** a real Codex
+  turn was run through the bridge without credentials, and the mise-installed binary sandboxes
+  correctly; the `bwrap: execvp` failure came from a degenerate synthetic permission profile, not
+  the install path. The policy is now verified by construction, conformance, and a checked-in
+  end-to-end harness.
