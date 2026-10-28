@@ -1,5 +1,7 @@
 name: AgentForge Release
 
+# Publishes attested archives on a vX.Y.Z tag (ADR-0056, Phase 0).
+
 on:
   push:
     tags:

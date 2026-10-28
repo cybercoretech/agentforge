@@ -1,5 +1,7 @@
 name: AgentForge CI
 
+# Gate for pushes to main and pull requests (ADR-0056, Phase 0).
+
 on:
   pull_request:
   push:
