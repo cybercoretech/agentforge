@@ -6,6 +6,8 @@ All notable AgentForge changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-27
+
 ### Added
 
 - The MCP task-tool gateway can front external MCP servers declared in `.forge/mcp/<server>.conf`.

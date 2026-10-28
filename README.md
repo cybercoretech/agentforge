@@ -7,13 +7,12 @@ It treats models as replaceable workers—not as the source of truth. The durabl
 the repository: plans, task contracts, permissions, isolated worktrees, quality-gate evidence,
 CI observations, audit records, and human decisions. 🧭
 
-> **Status:** `0.3.1-alpha` · latest tagged release
-> ([v0.3.1](https://github.com/cybercoretech/agentforge/releases/tag/v0.3.1)) · alpha: evolving
+> **Status:** `0.4.0-alpha` · latest release
+> ([v0.4.0](https://github.com/cybercoretech/agentforge/releases/tag/v0.4.0), attested archives and SBOM) · alpha: evolving
 > APIs, local-first, not for unattended production use
 >
-> **Known gap:** `v0.3.1` is a migrated tag. On this repository it carries only GitHub's automatic
-> source archives — no binaries, SBOM, or attestations. Publishing a verifiable `0.4.0` is the
-> first task for 1.0 ([ADR-0056](docs/adr/ADR-0056-agentforge-1.0-strategy.md)).
+> **Release history:** `v0.4.0` is the first release published from this repository with binaries,
+> an SBOM, and attestations. `v0.3.1` is a migrated tag that carries only source archives here.
 >
 > **Canonical repository:** [`cybercoretech/agentforge`](https://github.com/cybercoretech/agentforge).
 > Its earlier history (up to `976c4f9`) came over from the old `darkstardevx/agentforge` copy,
@@ -622,6 +621,13 @@ paths and restored reliable CI:
 - **P5-M001** the first tagged release,
   [`v0.1.0`](https://github.com/cybercoretech/agentforge/releases/tag/v0.1.0), with checksummed
   archives for Linux, macOS, and Windows.
+
+- **P6-M001** `0.4.0` is the first release published from this repository: CI runs on every push
+  and pull request again, and every archive carries both attestation types;
+- **P6-M002** the audit append lock waits on observed progress instead of a fixed deadline, so a
+  contended writer no longer fails while other writers are succeeding;
+- **P6-M003** release [`v0.4.0`](https://github.com/cybercoretech/agentforge/releases/tag/v0.4.0)
+  with external MCP servers, attested archives, and a CycloneDX SBOM.
 
 Candidate next milestones, each still requiring its own approved plan:
 

@@ -2,10 +2,10 @@
 
 ## Current release
 
-- Workspace version: `0.3.1`
-- Release line: `0.3.x` alpha; `v0.3.1` (P5-M007) is the first release with an attested SBOM and
-  the rehearsal's remote-worker fixes. `v0.3.0` (P5-M005) was the first with provenance
-  attestations, after `v0.2.0` (P5-M002) and `v0.1.0` (P5-M001).
+- Workspace version: `0.4.0`
+- Release line: `0.4.x` alpha. `v0.4.0` is the first release published from this repository with
+  binaries, an SBOM, and provenance attestations. `v0.3.1` (P5-M007) predates the migration and
+  carries only source archives here; `v0.3.0`, `v0.2.0`, and `v0.1.0` are historical.
 
 ## Current phase
 
@@ -18,13 +18,11 @@ capability work is approved. Phase A then adds a shared bridge kit with Codex CL
 ## Active milestone
 
 No active milestone. P3-M006 — external MCP servers behind the gateway — is complete.
-`v0.3.1` (P5-M007) is the latest release, and every completed milestone is tagged `milestone/<ID>`.
+`v0.4.0` is the latest release, and every completed milestone is tagged `milestone/<ID>`.
 
 ## Known issues
 
 - Findings 19 and 20 are released in `v0.3.1`; `v0.3.0` workers still have them.
-- The releases API is still empty: the `v0.3.1` tag carries only source archives. Publishing a
-  verifiable `0.4.0` is P6-M003 (ADR-0056, Phase 0).
 
 ## Evidence provenance
 
