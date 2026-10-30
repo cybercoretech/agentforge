@@ -32,6 +32,23 @@ forge agent validate /path/to/project local-agent
 forge agent inspect /path/to/project local-agent
 ```
 
+Check every profile in one read-only pass before creating a task:
+
+```text
+forge doctor /path/to/project --agents
+```
+
+Doctor is provider-neutral (ADR-0062). It reports each profile in `.forge/agents/` in identifier
+order: whether it loads within its bounds, whether its executable is an absolute existing regular
+file with an execute bit, whether every absolute `argument=` path exists, and whether the profile
+disables the bridge preflight with `--no-preflight` (a warning). It never runs the executable, never
+opens a network connection, and never writes. A failing profile exits 1 with one cause and one named
+fix; warnings exit 0. Without `--agents`, `forge doctor` keeps its original five-line output. See
+[DOCTOR_STATUS.md](DOCTOR_STATUS.md#agent-profiles).
+
+The profile check is not a substitute for the bridge preflight: whether the named agent version,
+flags, policy, and model are usable is decided by the bridge when a run starts.
+
 Select one for direct or daemon-backed execution:
 
 ```text

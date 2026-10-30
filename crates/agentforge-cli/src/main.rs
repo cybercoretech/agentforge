@@ -1,9 +1,12 @@
 //! `forge` command-line entry point.
 
-use agentforge_adapter::{AgentProfileStore, ProcessAdapter, ProcessAdapterConfig};
+use agentforge_adapter::{
+    AGENT_PROFILE_RELATIVE_PATH, AgentProfileStore, ProcessAdapter, ProcessAdapterConfig,
+};
 use agentforge_audit::FileAuditStore;
 use agentforge_core::agent::{ApprovalBoundary, Capability};
 use agentforge_core::task::{TaskGraph, TaskId, TaskRecord};
+use agentforge_daemon::worker_api::DoctorLevel;
 use agentforge_daemon::{
     launch_profile as daemon_launch_profile, launch_task as daemon_launch_task,
     restart_with_program as daemon_restart_with_program, run_profile as daemon_run_profile,
@@ -41,10 +44,7 @@ fn main() -> ExitCode {
             );
             ExitCode::SUCCESS
         }
-        Some("doctor") => {
-            print_doctor(Path::new("."));
-            ExitCode::SUCCESS
-        }
+        Some("doctor") => doctor_command(args.collect()),
         Some("status") => {
             print_status(Path::new("."));
             ExitCode::SUCCESS
@@ -77,7 +77,7 @@ fn main() -> ExitCode {
 
 fn print_usage() {
     println!(
-        "usage: forge <version|doctor|status|init <root>|intake <root> [--task] [--input-file <path>]|blueprint validate <root>|task create|inspect|launch|launch-batch|diff|approve|integrate|accept|cancel|retry ...|agent list|validate|inspect <root> [<profile>]|gate list <root>|worker list|run ...|lease list|grant|renew|release|expire ...|ci observe <root> <repository> <workflow> <sha> [--task <task-id>]|run <root> <task-id> <absolute-executable> [--interactive] [--pty]|run <root> <task-id> --profile <profile> [--interactive] [--pty]|daemon start|restart|status|run|launch|stop ...|worktree create|inspect|list|retire ...|hud <root> [--watch [--interval-ms <milliseconds>]]|mcp serve --contract <file> --worktree <dir> [--root <project>]>"
+        "usage: forge <version|doctor [<root>] [--agents]|status|init <root>|intake <root> [--task] [--input-file <path>]|blueprint validate <root>|task create|inspect|launch|launch-batch|diff|approve|integrate|accept|cancel|retry ...|agent list|validate|inspect <root> [<profile>]|gate list <root>|worker list|run ...|lease list|grant|renew|release|expire ...|ci observe <root> <repository> <workflow> <sha> [--task <task-id>]|run <root> <task-id> <absolute-executable> [--interactive] [--pty]|run <root> <task-id> --profile <profile> [--interactive] [--pty]|daemon start|restart|status|run|launch|stop ...|worktree create|inspect|list|retire ...|hud <root> [--watch [--interval-ms <milliseconds>]]|mcp serve --contract <file> --worktree <dir> [--root <project>]>"
     );
 }
 
@@ -3026,6 +3026,233 @@ fn print_doctor(root: &Path) {
     println!("plan_pointer: {}", check(root.join(".plans/ACTIVE")));
     println!("environment: externally managed");
     println!("mutations: none");
+}
+
+fn doctor_command(arguments: Vec<String>) -> ExitCode {
+    let usage = |reason: &str| {
+        eprintln!("forge doctor [<root>] [--agents]: {reason}");
+        ExitCode::from(2)
+    };
+    let mut root = None;
+    let mut agents = false;
+    for argument in arguments {
+        if argument == "--agents" {
+            if agents {
+                return usage("--agents may be given once");
+            }
+            agents = true;
+        } else if argument.starts_with('-') {
+            return usage(&format!("unknown option {argument}"));
+        } else if root.is_some() {
+            return usage("at most one root may be given");
+        } else {
+            root = Some(std::path::PathBuf::from(argument));
+        }
+    }
+    let root = root.unwrap_or_else(|| std::path::PathBuf::from("."));
+    print_doctor(&root);
+    if !agents {
+        return ExitCode::SUCCESS;
+    }
+
+    let (profiles, checks) = agent_doctor_checks(&root);
+    for check in &checks {
+        println!(
+            "doctor {} {}: {}",
+            check.level.as_str(),
+            check.name,
+            check.detail
+        );
+        if !check.fix.is_empty() {
+            println!("  fix: {}", check.fix);
+        }
+    }
+    let failed = checks
+        .iter()
+        .filter(|check| check.level == DoctorLevel::Fail)
+        .count();
+    let warnings = checks
+        .iter()
+        .filter(|check| check.level == DoctorLevel::Warn)
+        .count();
+    println!(
+        "agents doctor: {profiles} profile(s), {failed} failing check(s), {warnings} warning(s)"
+    );
+    if failed == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+/// One static finding about the project's agent profiles (P6-M008, ADR-0062).
+struct AgentDoctorCheck {
+    level: DoctorLevel,
+    name: String,
+    detail: String,
+    fix: String,
+}
+
+impl AgentDoctorCheck {
+    fn ok(name: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self {
+            level: DoctorLevel::Ok,
+            name: name.into(),
+            detail: detail.into(),
+            fix: String::new(),
+        }
+    }
+
+    fn warn(name: impl Into<String>, detail: impl Into<String>, fix: impl Into<String>) -> Self {
+        Self {
+            level: DoctorLevel::Warn,
+            name: name.into(),
+            detail: detail.into(),
+            fix: fix.into(),
+        }
+    }
+
+    fn fail(name: impl Into<String>, detail: impl Into<String>, fix: impl Into<String>) -> Self {
+        Self {
+            level: DoctorLevel::Fail,
+            name: name.into(),
+            detail: detail.into(),
+            fix: fix.into(),
+        }
+    }
+}
+
+/// Checks every profile without launching it or contacting the network (ADR-0062).
+fn agent_doctor_checks(root: &Path) -> (usize, Vec<AgentDoctorCheck>) {
+    let store = AgentProfileStore::new(root);
+    let directory = store.directory();
+    let ids = match store.ids() {
+        Ok(ids) => ids,
+        Err(error) => {
+            return (
+                0,
+                vec![AgentDoctorCheck::fail(
+                    "agents",
+                    format!("cannot list {}: {error}", directory.display()),
+                    "make the profile directory readable, or remove it",
+                )],
+            );
+        }
+    };
+    if ids.is_empty() {
+        return (
+            0,
+            vec![AgentDoctorCheck::ok(
+                "agents",
+                format!("no agent profiles configured ({})", directory.display()),
+            )],
+        );
+    }
+
+    let profiles = ids.len();
+    let mut checks = Vec::new();
+    for id in ids {
+        let profile = match store.load(&id) {
+            Ok(profile) => profile,
+            Err(error) => {
+                checks.push(AgentDoctorCheck::fail(
+                    format!("profile {id}"),
+                    error.to_string(),
+                    format!(
+                        "fix {AGENT_PROFILE_RELATIVE_PATH}/{id}.conf (see docs/AGENT_PROFILES.md)"
+                    ),
+                ));
+                continue;
+            }
+        };
+        checks.push(AgentDoctorCheck::ok(
+            format!("profile {id}"),
+            format!(
+                "executable={} arguments={} environment={} timeout_ms={} max_output_bytes={}",
+                profile.executable().display(),
+                profile.arguments().len(),
+                profile.environment().len(),
+                profile.timeout().as_millis(),
+                profile.max_output_bytes()
+            ),
+        ));
+        checks.push(executable_permission_check(&id, profile.executable()));
+        if let Some(check) = absolute_argument_check(&id, profile.arguments()) {
+            checks.push(check);
+        }
+        if profile
+            .arguments()
+            .iter()
+            .any(|argument| argument == "--no-preflight")
+        {
+            checks.push(AgentDoctorCheck::warn(
+                format!("profile {id} preflight"),
+                "the arguments include --no-preflight, which disables the preflight of an AgentForge bridge",
+                format!("remove --no-preflight from {AGENT_PROFILE_RELATIVE_PATH}/{id}.conf"),
+            ));
+        }
+    }
+    (profiles, checks)
+}
+
+#[cfg(unix)]
+fn executable_bit(executable: &Path) -> Result<Option<bool>, String> {
+    use std::os::unix::fs::PermissionsExt;
+    match std::fs::metadata(executable) {
+        Ok(metadata) => Ok(Some(metadata.permissions().mode() & 0o111 != 0)),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// `None` when the platform does not model an execute bit.
+#[cfg(not(unix))]
+fn executable_bit(_executable: &Path) -> Result<Option<bool>, String> {
+    Ok(None)
+}
+
+fn executable_permission_check(id: &str, executable: &Path) -> AgentDoctorCheck {
+    let name = format!("profile {id} executable");
+    match executable_bit(executable) {
+        Ok(Some(true)) => AgentDoctorCheck::ok(name, "has at least one execute bit"),
+        Ok(Some(false)) => AgentDoctorCheck::fail(
+            name,
+            format!("{} is not executable", executable.display()),
+            "chmod +x it, or point executable= at the right binary",
+        ),
+        Ok(None) => AgentDoctorCheck::ok(
+            name,
+            format!(
+                "{} is a file (this platform does not model an execute bit)",
+                executable.display()
+            ),
+        ),
+        Err(error) => AgentDoctorCheck::fail(
+            name,
+            format!("cannot read {}: {error}", executable.display()),
+            "make it readable, or correct executable= in the profile",
+        ),
+    }
+}
+
+fn absolute_argument_check(id: &str, arguments: &[String]) -> Option<AgentDoctorCheck> {
+    let missing: Vec<&str> = arguments
+        .iter()
+        .map(String::as_str)
+        .filter(|argument| {
+            let path = Path::new(argument);
+            path.is_absolute() && !path.exists()
+        })
+        .collect();
+    if missing.is_empty() {
+        return None;
+    }
+    Some(AgentDoctorCheck::fail(
+        format!("profile {id} argument"),
+        format!("absolute argument(s) do not exist: {}", missing.join(", ")),
+        format!(
+            "correct or install the path, or remove the argument in {AGENT_PROFILE_RELATIVE_PATH}/{id}.conf"
+        ),
+    ))
 }
 
 fn print_status(root: &Path) {

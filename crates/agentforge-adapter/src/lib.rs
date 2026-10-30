@@ -172,8 +172,11 @@ impl AgentProfileStore {
         parse_profile(id, &text)
     }
 
-    /// Lists all valid profiles in deterministic identifier order.
-    pub fn list(&self) -> Result<Vec<AgentProfile>, AdapterError> {
+    /// Lists every profile identifier in deterministic order without loading the profiles.
+    ///
+    /// Unlike [`Self::list`], a profile that does not load does not hide the others. Diagnostics
+    /// use this to report each broken profile by name.
+    pub fn ids(&self) -> Result<Vec<String>, AdapterError> {
         let directory = self.directory();
         let entries = match fs::read_dir(&directory) {
             Ok(entries) => entries,
@@ -196,7 +199,12 @@ impl AgentProfileStore {
             ids.push(id.to_owned());
         }
         ids.sort();
-        ids.into_iter().map(|id| self.load(&id)).collect()
+        Ok(ids)
+    }
+
+    /// Lists all valid profiles in deterministic identifier order.
+    pub fn list(&self) -> Result<Vec<AgentProfile>, AdapterError> {
+        self.ids()?.into_iter().map(|id| self.load(&id)).collect()
     }
 }
 
@@ -1696,6 +1704,42 @@ mod tests {
         );
         assert_eq!(profile.timeout(), std::time::Duration::from_millis(250));
         assert_eq!(profile.max_output_bytes(), 2048);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn profile_store_enumerates_ids_without_loading_profiles() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "agentforge-profile-ids-test-{}-{suffix}",
+            std::process::id()
+        ));
+        let store = AgentProfileStore::new(&root);
+        assert!(
+            store.ids().unwrap().is_empty(),
+            "an absent directory is empty"
+        );
+
+        let directory = root.join(".forge/agents");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("zeta.conf"), "not a profile\n").unwrap();
+        fs::write(directory.join("alpha.conf"), "not a profile\n").unwrap();
+        fs::write(directory.join("ignored.txt"), "not a profile\n").unwrap();
+        fs::write(directory.join("bad name.conf"), "not a profile\n").unwrap();
+
+        assert_eq!(
+            store.ids().unwrap(),
+            vec!["alpha".to_owned(), "bad name".to_owned(), "zeta".to_owned()],
+            "ids are sorted and include profiles that do not load"
+        );
+        assert!(
+            store.list().is_err(),
+            "list still fails closed on a broken profile"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }

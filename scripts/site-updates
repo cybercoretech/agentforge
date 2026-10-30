@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-RECENT_LIMIT = 8
+RECENT_LIMIT = 50
 PHASE_HEADING = re.compile(r"^## Phase (\d+) — (.+)$")
 ROW = re.compile(r"^\| (P\d+-M\d{3}) \| ([a-z]+) \| (.+?) \| (.+) \|$")
 DATE = re.compile(r"^Completed:\s*(\d{4}-\d{2}-\d{2})", re.MULTILINE)

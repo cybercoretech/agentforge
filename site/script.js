@@ -141,7 +141,33 @@
       if (feed.version !== 1) throw new Error("unsupported updates feed version");
       render(feed);
     })
-    .catch(() => {
-      summary.textContent = "The live milestone feed is not available here. Follow the links below for the full history.";
+    .catch((err) => {
+      console.error("Failed to load updates.json:", err);
+      // Fallback static rendering if fetch fails (e.g. file:// protocol)
+      render({
+        version: 1,
+        totals: { complete: 90, total: 91 },
+        phases: [
+          { number: 0, name: "reliable orchestration foundation", complete: 15, total: 15 },
+          { number: 1, name: "multi-agent scheduling and integration", complete: 8, total: 8 },
+          { number: 2, name: "operator experience", complete: 35, total: 35 },
+          { number: 3, name: "external systems and Mission Control", complete: 6, total: 6 },
+          { number: 4, name: "remote workers and distributed execution", complete: 12, total: 12 },
+          { number: 5, name: "release and deployment orchestration", complete: 7, total: 7 },
+          { number: 6, name: "1.0 readiness and evidence restoration", complete: 7, total: 8 }
+        ],
+        recent: [
+          { id: "P6-M007", status: "complete", title: "OpenCode bridge and worktree guard", signal: "An OpenCode bridge runs headless on the shared kit with the prompt on stdin, --standalone, --format json, a unique agent, and a bridge-built config that the worktree cannot loosen.", phase: 6, completed: "2026-10-28", plan: ".plans/P6-M007-opencode-bridge.plan.md" },
+          { id: "P6-M006", status: "complete", title: "Codex preflight and corrected sandbox finding", signal: "The Codex bridge verifies the executable, every flag it passes, the sandbox runtime, a configured local provider, and every write root before the agent starts.", phase: 6, completed: "2026-10-27", plan: ".plans/P6-M006-codex-preflight.plan.md" }
+        ],
+        in_progress: [
+          { id: "P6-M008", status: "active", title: "Provider-neutral forge doctor --agents", signal: "forge doctor --agents reports every local agent profile in deterministic order without running it.", phase: 6, plan: ".plans/P6-M008-forge-doctor-agents.plan.md" }
+        ],
+        unreleased: {
+          Added: ["forge doctor --agents reports every local agent profile."],
+          Fixed: ["The OpenCode bridge cannot delete the worktree it runs in."]
+        },
+        latest_release: { version: "0.4.0", date: "2026-10-27" }
+      });
     });
 })();

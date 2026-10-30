@@ -8,6 +8,14 @@ All notable AgentForge changes are documented here. The format follows
 
 ### Added
 
+- `forge doctor [<root>] --agents` reports every local agent profile in deterministic order without
+  running it or reaching the network (P6-M008, ADR-0062). For each `.forge/agents/*.conf` it checks
+  that the profile loads, that its executable is an absolute existing regular file with an execute
+  bit where the platform models one, that every absolute `argument=` path exists, and warns when
+  `--no-preflight` disables the bridge preflight. A failing profile exits 1 with one cause and one
+  named fix; warnings exit 0; an absent or empty profile directory is healthy. The default
+  `forge doctor` output is unchanged, and `forge doctor <root>` now observes the root the README
+  already documented.
 - An OpenCode bridge, `scripts/agents/opencode-bridge`, on the shared kit (P6-M007, ADR-0061). It
   runs `opencode run --standalone --format json --agent <unique>` with the instructions on stdin and
   the whole policy in `OPENCODE_CONFIG_CONTENT`, which OpenCode appends last; project configuration

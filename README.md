@@ -468,7 +468,7 @@ failure, then preserve the evidence while deciding what to do:
 | Symptom | First inspection | Operator boundary |
 | --- | --- | --- |
 | Task is not ready | `forge task inspect <root> <task-id>` | Satisfy dependencies, capabilities, and approvals; do not force a transition. |
-| Agent did not start | `forge doctor <root>` and the task/profile inspection commands | Fix the executable, profile, policy, or worktree preflight; no partial run is considered success. |
+| Agent did not start | `forge doctor <root> --agents` and the task/profile inspection commands | Fix the executable, profile, policy, or worktree preflight; no partial run is considered success. |
 | Worktree is dirty or ambiguous | `forge worktree inspect <root> <task-id>` and `git status` in that worktree | Review and clean it intentionally, or preserve it for recovery; retirement is non-forced. |
 | Process failed or timed out | `forge task inspect`, HUD, audit log, and the bounded output evidence | Classify the failure before retrying; a retry is a new explicit lifecycle decision. |
 | CI is red | Verify the run’s exact commit SHA and classify the failure | Repair forward on a new commit; never treat a different green SHA as proof for the reviewed change. |
