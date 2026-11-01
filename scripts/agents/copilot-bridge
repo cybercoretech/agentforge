@@ -1,0 +1,519 @@
+#!/usr/bin/env python3
+"""Run GitHub Copilot CLI as a sandboxed AgentForge agent (ADR-0063)."""
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import bridge_kit
+
+BRIDGE_PATH = "scripts/agents/copilot-bridge"
+AGENT_NAME = "GitHub Copilot CLI"
+CO_AUTHOR = "GitHub Copilot <noreply@github.com>"
+IDENTITY = re.compile(r"^GitHub Copilot CLI\s+\d+\.\d+\.\d+\.", re.MULTILINE)
+PREFLIGHT_TIMEOUT = 30
+
+# These are the documented built-in tool names.  The available-tools list decides what the model
+# can see; deny rules are a separate defence because --allow-all-tools is mandatory for -p.
+FILE_TOOLS = ("read", "grep", "glob", "write", "edit")
+NETWORK_TOOLS = ("web_fetch", "web_search")
+FORBIDDEN_FLAGS = (
+    "--allow-all",
+    "--yolo",
+    "--allow-all-paths",
+    "--allow-all-urls",
+    "--trust-folder",
+    "--fleet",
+    "--resume",
+    "--continue",
+    "--session-id",
+    "--plugin-dir",
+    "--add-dir",
+    "--enable-all-github-mcp-tools",
+    "--add-github-mcp-toolset",
+    "--add-github-mcp-tool",
+    "--mcp-github-auth",
+    "--allow-all-mcp-server-instructions",
+)
+SENSITIVE_ENV_NAMES = (
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "COPILOT_TOKEN",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AZURE_CLIENT_SECRET",
+    "GOOGLE_API_KEY",
+    "NPM_TOKEN",
+    "PYPI_TOKEN",
+)
+LINUX_MXC_EXECUTABLES = (
+    "bwrap",
+    "slirp4netns",
+    "unshare",
+    "nsenter",
+    "iptables",
+    "ip6tables",
+    "iptables-restore",
+    "ip6tables-restore",
+)
+
+
+class PreflightFailure(bridge_kit.BridgeError):
+    """Copilot cannot establish the exact policy this bridge requires."""
+
+
+def instructions(task, message_file):
+    return f"""You are the implementer for AgentForge task {task['task_id']} (milestone {task['milestone_id']}, role {task['primary_role']}).
+You are running headlessly in AgentForge's managed Git worktree.
+
+## Goal
+{task['goal']}
+
+## Non-goals
+{bridge_kit.bullets(task['non_goals'])}
+
+## You may change only these paths
+{bridge_kit.bullets(task['allowed_paths'], 'no paths are writable')}
+
+## Never change these paths
+{bridge_kit.bullets(task['forbidden_paths'])}
+
+## Expected outputs
+{bridge_kit.bullets(task['expected_outputs'])}
+
+## Evidence requirements
+{bridge_kit.bullets(task['evidence_requirements'])}
+
+## Required gates
+{bridge_kit.bullets(task['required_gates'])}
+
+## How to work
+1. Change only the allowed paths above. Any change outside them makes the whole run fail, and
+   nothing is committed.
+2. Do not commit, push, reset, check out branches, clean, alter remotes, load plugins, or bypass
+   the sandbox. The bridge commits only after it verifies the path boundary.
+3. {'You may run local commands because this task holds `run_local_commands`.' if 'run_local_commands' in task['capabilities'] else 'You may not run shell commands in this task.'}
+4. {'Network access is available because this task holds `use_network`.' if 'use_network' in task['capabilities'] else 'Network and web tools are unavailable in this task.'}
+5. {'You have only the AgentForge MCP task gateway; use it only for task tools.' if 'use_mcp_tools' in task['capabilities'] else 'MCP tools are unavailable in this task.'}
+6. When done, write a detailed conventional-commit message to {message_file}: subject, blank
+   line, then a body with the changes and evidence. Do not include Co-Authored-By trailers.
+7. Finish with a short plain-text summary of changes and verification.
+"""
+
+
+def secret_env_vars(environment):
+    """Known names only: this redacts values but cannot discover secrets in arbitrary variables/files."""
+    return [name for name in SENSITIVE_ENV_NAMES if name in environment]
+
+
+def tool_policy(task):
+    tools = list(FILE_TOOLS)
+    if "run_local_commands" in task["capabilities"]:
+        tools.append("shell")
+    if "use_network" in task["capabilities"]:
+        tools.extend(NETWORK_TOOLS)
+    if "use_mcp_tools" in task["capabilities"]:
+        tools.append("agentforge")
+    return tools
+
+
+def denied_tools(task):
+    denied = [
+        "shell(git commit)",
+        "shell(git push)",
+        "shell(git reset)",
+        "shell(git checkout)",
+        "shell(git switch)",
+        "shell(git clean)",
+        "shell(git clone)",
+        "shell(git fetch)",
+        "shell(git pull)",
+    ]
+    if "run_local_commands" not in task["capabilities"]:
+        denied.append("shell")
+    if "use_network" not in task["capabilities"]:
+        denied += ["url", "shell(curl:*)", "shell(wget:*)"]
+    if "use_mcp_tools" not in task["capabilities"]:
+        denied.append("agentforge")
+    return denied
+
+
+def sandbox_settings(task, worktree, scratch):
+    """The documented settings.json shape, entirely owned by this invocation."""
+    write_paths = [str(Path(worktree, path).resolve()) for path in task["allowed_paths"]]
+    write_paths.append(str(Path(scratch).resolve()))
+    network = "use_network" in task["capabilities"]
+    return {
+        "autoUpdate": False,
+        "memory": False,
+        "includeCoAuthoredBy": False,
+        "sandbox": {
+            "enabled": True,
+            "addCurrentWorkingDirectory": False,
+            "allowBypass": False,
+            "allowDevToolAccess": False,
+            "sandboxMcpServers": True,
+            "sandboxLspServers": True,
+            "auth": {"git": False, "gh": False},
+            "userPolicy": {
+                "filesystem": {
+                    "readwritePaths": write_paths,
+                    "readonlyPaths": [str(Path(worktree).resolve())],
+                    "deniedPaths": [],
+                },
+                "network": {"allowOutbound": network, "allowLocalNetwork": network},
+            },
+        },
+    }
+
+
+def mcp_config(task, forge, scratch, worktree, root):
+    serve = bridge_kit.mcp_server_arguments(
+        task, forge, Path(scratch) / "contract.txt", worktree, root
+    )
+    if serve is None:
+        return None
+    if not (Path(forge).is_file() or shutil.which(str(forge))):
+        raise bridge_kit.BridgeError(
+            f"forge executable {forge!r} was not found; pass --forge PATH for use_mcp_tools"
+        )
+    document = {"mcpServers": {"agentforge": {"command": str(forge), "args": serve}}}
+    encoded = json.dumps(document, sort_keys=True)
+    try:
+        decoded = json.loads(encoded)
+        server = decoded["mcpServers"]["agentforge"]
+        if set(decoded) != {"mcpServers"} or set(decoded["mcpServers"]) != {"agentforge"}:
+            raise ValueError("unexpected server")
+        if server["command"] != str(forge) or server["args"] != serve:
+            raise ValueError("server did not round-trip")
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise bridge_kit.BridgeError(f"cannot render AgentForge MCP configuration: {error}") from error
+    path = Path(scratch) / "mcp.json"
+    path.write_text(encoded + "\n", encoding="utf-8")
+    return path
+
+
+def build_command(*, copilot, task, worktree, mcp_path=None, model=None, environment=None):
+    """Build the whole noninteractive policy. --allow-all-tools is required by Copilot -p, but
+    available-tools and explicit denials constrain it; it never broadens paths or URLs."""
+    command = [
+        copilot,
+        "-C",
+        str(worktree),
+        "-p",
+        "<instructions>",
+        "--output-format",
+        "json",
+        "--allow-all-tools",
+        "--available-tools",
+        *tool_policy(task),
+        "--disallow-temp-dir",
+        "--disable-builtin-mcps",
+        "--no-custom-instructions",
+        "--no-auto-update",
+        "--no-ask-user",
+        "--no-bash-env",
+        "--no-experimental",
+        "--sandbox",
+    ]
+    if "use_network" in task["capabilities"]:
+        # This is not --allow-all-urls: a task's network grant permits HTTPS egress through the
+        # explicit URL policy while sandbox settings separately control the network namespace.
+        command += ["--allow-url", "https://*"]
+    else:
+        command += ["--deny-url", "*"]
+    for denied in denied_tools(task):
+        command += ["--deny-tool", denied]
+    if mcp_path:
+        command += ["--additional-mcp-config", "@" + str(mcp_path)]
+    if model:
+        command += ["--model", model]
+    secrets = secret_env_vars(environment or os.environ)
+    if secrets:
+        command += ["--secret-env-vars", *secrets]
+    for flag in FORBIDDEN_FLAGS:
+        if flag in command:
+            raise bridge_kit.BridgeError(f"refusing to pass {flag}")
+    if command.count("--sandbox") != 1 or command.count("--available-tools") != 1:
+        raise bridge_kit.BridgeError("Copilot sandbox and available-tools must each be set exactly once")
+    return command
+
+
+def required_help_flags(command):
+    # Copilot 1.0.105 documents `-C` only in short form; prompt has both forms.
+    short = {"-p": "--prompt"}
+    return sorted({short.get(token, token) for token in command if token in short or token.startswith("--")})
+
+
+def _tail(text, limit=400):
+    return (text or "").strip()[-limit:] or "(no output)"
+
+
+def run_probe(arguments, environment):
+    try:
+        return subprocess.run(
+            arguments, capture_output=True, text=True, timeout=PREFLIGHT_TIMEOUT, env=environment
+        )
+    except FileNotFoundError as error:
+        raise PreflightFailure(
+            f"cannot run {arguments[0]!r}: not found; install GitHub Copilot CLI or pass --copilot PATH"
+        ) from error
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise PreflightFailure(f"`{' '.join(arguments)}` did not run: {error}") from error
+
+
+def probe_version(copilot, environment):
+    result = run_probe([copilot, "--version"], environment)
+    if result.returncode:
+        raise PreflightFailure(f"`{copilot} --version` exited {result.returncode}: {_tail(result.stderr)}")
+    version = (result.stdout or result.stderr).strip()
+    if not version:
+        raise PreflightFailure(f"`{copilot} --version` printed nothing; is it GitHub Copilot CLI?")
+    return version
+
+
+def probe_help(copilot, command, environment):
+    help_result = run_probe([copilot, "--help"], environment)
+    sandbox_result = run_probe([copilot, "help", "sandbox"], environment)
+    if help_result.returncode or sandbox_result.returncode:
+        raise PreflightFailure(
+            f"Copilot help failed: --help={help_result.returncode}, help sandbox={sandbox_result.returncode}; "
+            "install a supported GitHub Copilot CLI"
+        )
+    text = "\n".join(
+        (help_result.stdout, help_result.stderr, sandbox_result.stdout, sandbox_result.stderr)
+    )
+    missing = [flag for flag in required_help_flags(command) if flag not in text]
+    if missing:
+        raise PreflightFailure(
+            "the installed Copilot CLI no longer documents "
+            + ", ".join(missing)
+            + "; upgrade or pin a supported CLI before this bridge can run"
+        )
+
+
+def linux_mxc_problem(which=shutil.which, access=os.access, platform=None, runner=subprocess.run):
+    """Return one actionable MXC prerequisite failure, or None."""
+    if not (platform or sys.platform).startswith("linux"):
+        return None
+    for executable in LINUX_MXC_EXECUTABLES:
+        if not which(executable):
+            return (
+                f"Copilot MXC sandbox needs {executable} on PATH; install it "
+                "(on Debian/Ubuntu install bubblewrap, slirp4netns, util-linux, and iptables)"
+            )
+    bwrap = which("bwrap")
+    result = runner([bwrap, "--version"], capture_output=True, text=True, timeout=PREFLIGHT_TIMEOUT)
+    version = re.search(r"(\d+)\.(\d+)\.(\d+)", result.stdout or result.stderr or "")
+    if result.returncode or not version or tuple(map(int, version.groups())) < (0, 5, 0):
+        return "Copilot MXC sandbox needs bwrap 0.5.0 or newer; install or upgrade bubblewrap"
+    tun = "/dev/net/tun"
+    if not (access(tun, os.R_OK) and access(tun, os.W_OK)):
+        return "Copilot MXC sandbox needs read/write /dev/net/tun; grant the running user TUN access"
+    return None
+
+
+def run_preflight(*, copilot, command, environment):
+    version = probe_version(copilot, environment)
+    print(f"copilot-bridge: preflight: {version}", flush=True)
+    probe_help(copilot, command, environment)
+    # A conformance stand-in must exercise help drift but cannot truthfully claim to be Copilot or
+    # require host MXC packages. Real identities always receive the complete host check.
+    if IDENTITY.search(version):
+        problem = linux_mxc_problem()
+        if problem:
+            raise PreflightFailure(problem)
+    print(
+        "copilot-bridge: preflight: executable, flags, sandbox policy, and MXC prerequisites OK"
+        + ("" if IDENTITY.search(version) else " (stand-in; Copilot-only MXC check skipped)"),
+        flush=True,
+    )
+
+
+def summary_from_jsonl(output):
+    text = []
+    for line in (output or "").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        for key in ("content", "message", "text", "summary"):
+            value = event.get(key)
+            if isinstance(value, str):
+                text.append(value)
+    return "\n".join(dict.fromkeys(text)).strip() or output
+
+
+def git_scratch_dir():
+    """A bridge-private directory under Git metadata, invisible to changed_paths()."""
+    try:
+        path = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-path", "agentforge-copilot"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise bridge_kit.BridgeError(f"cannot locate Git metadata for bridge scratch state: {error}") from error
+    directory = Path(path)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def self_test():
+    task = bridge_kit.decode_prompt(bridge_kit.FIXTURE.read_bytes())
+    assert task["task_id"] == "P6-M004-T0001"
+    sample = {
+        "contract_version": "1", "task_id": "P9-M010-T0001", "milestone_id": "P9-M010",
+        "primary_role": "implementer", "goal": "Test Copilot policy", "non_goals": [],
+        "dependency_task_ids": [], "allowed_paths": ["docs"], "forbidden_paths": ["docs/secret"],
+        "capabilities": ["write_owned_paths"], "required_approvals": [], "required_gates": [],
+        "expected_outputs": [], "evidence_requirements": [],
+    }
+    command = build_command(
+        copilot="/fake/copilot", task=sample, worktree="/worktree", environment={"GH_TOKEN": "x"}
+    )
+    for flag in FORBIDDEN_FLAGS:
+        assert flag not in command, flag
+    assert "--allow-all-tools" in command and "--available-tools" in command
+    assert "--sandbox" in command and "--disallow-temp-dir" in command
+    assert "shell" not in tool_policy(sample) and "web_fetch" not in tool_policy(sample)
+    assert "agentforge" not in tool_policy(sample)
+    assert "shell" in denied_tools(sample) and "url" in denied_tools(sample)
+    assert "--secret-env-vars" in command and "GH_TOKEN" in command
+    full = dict(sample, capabilities=["run_local_commands", "use_network", "use_mcp_tools"])
+    assert set(tool_policy(full)) == set(FILE_TOOLS + NETWORK_TOOLS + ("shell", "agentforge"))
+    assert "shell" not in denied_tools(full) and "url" not in denied_tools(full)
+    settings = sandbox_settings(sample, "/worktree", "/scratch")
+    assert settings["sandbox"]["enabled"] and not settings["sandbox"]["allowBypass"]
+    assert not settings["sandbox"]["allowDevToolAccess"]
+    assert settings["sandbox"]["addCurrentWorkingDirectory"] is False
+    assert settings["sandbox"]["userPolicy"]["filesystem"]["readwritePaths"] == ["/worktree/docs", "/scratch"]
+    assert settings["sandbox"]["userPolicy"]["network"] == {
+        "allowOutbound": False, "allowLocalNetwork": False
+    }
+    assert settings["sandbox"]["sandboxMcpServers"] and settings["sandbox"]["sandboxLspServers"]
+    assert "write a detailed conventional-commit message" in instructions(sample, "/worktree/message")
+
+    required = required_help_flags(command)
+    assert "--sandbox" in required and "--available-tools" in required
+    fake_tools = {name: "/bin/" + name for name in LINUX_MXC_EXECUTABLES}
+    assert linux_mxc_problem(
+        which=fake_tools.get, access=lambda path, mode: True, platform="linux",
+        runner=lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "bwrap 0.13.1\n", ""),
+    ) is None
+    missing = dict(fake_tools)
+    missing.pop("slirp4netns")
+    assert "slirp4netns" in linux_mxc_problem(
+        which=missing.get, access=lambda path, mode: True, platform="linux",
+        runner=lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "bwrap 0.13.1\n", ""),
+    )
+    print("copilot-bridge self-test passed")
+    return bridge_kit.EXIT_COMMITTED
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Run GitHub Copilot CLI as an AgentForge agent.")
+    parser.add_argument("--copilot", default="copilot")
+    parser.add_argument("--forge")
+    parser.add_argument("--model")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
+    arguments = parser.parse_args()
+    if arguments.self_test:
+        return self_test()
+    try:
+        raw_prompt = sys.stdin.buffer.read()
+        task = bridge_kit.decode_prompt(raw_prompt)
+    except (bridge_kit.PromptError, UnicodeDecodeError) as error:
+        print(f"copilot-bridge: invalid task prompt: {error}", file=sys.stderr)
+        return bridge_kit.EXIT_INVALID
+    if not task["allowed_paths"]:
+        print("copilot-bridge: the task declares no allowed paths", file=sys.stderr)
+        return bridge_kit.EXIT_INVALID
+
+    # Keep transient state in the managed worktree while Copilot needs it, then remove it before
+    # changed_paths(). The agent's message is retained under Git metadata, which Git never reports.
+    with tempfile.TemporaryDirectory(prefix=".agentforge-copilot-", dir=Path.cwd()) as scratch:
+        scratch_path = Path(scratch)
+        message_file = scratch_path / "COMMIT_MSG"
+        (scratch_path / "contract.txt").write_bytes(raw_prompt)
+        environment = bridge_kit.agent_environment("copilot-bridge")
+        environment["COPILOT_HOME"] = str(scratch_path / "home")
+        Path(environment["COPILOT_HOME"]).mkdir()
+        (Path(environment["COPILOT_HOME"]) / "settings.json").write_text(
+            json.dumps(sandbox_settings(task, Path.cwd(), scratch_path)) + "\n", encoding="utf-8"
+        )
+        try:
+            mcp_path = mcp_config(
+                task, arguments.forge or shutil.which("forge"), scratch_path, Path.cwd(), bridge_kit.project_root()
+            )
+            command = build_command(
+                copilot=arguments.copilot, task=task, worktree=Path.cwd(), mcp_path=mcp_path,
+                model=arguments.model, environment=environment,
+            )
+        except bridge_kit.BridgeError as error:
+            print(f"copilot-bridge: {error}", file=sys.stderr)
+            return bridge_kit.EXIT_INVALID
+        text = instructions(task, message_file)
+        if arguments.dry_run:
+            print(text)
+            print("command:", " ".join("<instructions>" if part == "<instructions>" else part for part in command))
+            return bridge_kit.EXIT_COMMITTED
+        try:
+            run_preflight(copilot=arguments.copilot, command=command, environment=environment)
+        except bridge_kit.BridgeError as error:
+            print(f"copilot-bridge: preflight failed: {error}", file=sys.stderr)
+            return bridge_kit.EXIT_INVALID
+        command[command.index("<instructions>")] = text
+        print(f"copilot-bridge: running GitHub Copilot CLI for {task['task_id']}", flush=True)
+        agent = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=environment)
+        sys.stdout.write(agent.stdout)
+        sys.stderr.write(agent.stderr)
+        if agent.returncode:
+            print(f"copilot-bridge: Copilot exited {agent.returncode}; nothing committed", file=sys.stderr)
+            return agent.returncode
+        message = message_file.read_text(encoding="utf-8") if message_file.exists() else ""
+        shutil.rmtree(scratch_path)
+        retained_message = git_scratch_dir() / "COMMIT_MSG"
+        retained_message.write_text(message, encoding="utf-8")
+        try:
+            paths = bridge_kit.changed_paths()
+            if not paths:
+                print("copilot-bridge: the agent made no changes", file=sys.stderr)
+                return bridge_kit.EXIT_NO_CHANGES
+            violations = bridge_kit.boundary_violations(paths, task["allowed_paths"], task["forbidden_paths"])
+            if violations:
+                print("copilot-bridge: changes outside the task boundary; nothing committed:", file=sys.stderr)
+                for path in violations:
+                    print(f"  {path}", file=sys.stderr)
+                return bridge_kit.EXIT_PATH_VIOLATION
+            if bridge_kit.commit(
+                task, paths, retained_message, summary_from_jsonl(agent.stdout), AGENT_NAME, BRIDGE_PATH,
+                arguments.model, CO_AUTHOR
+            ):
+                print("copilot-bridge: commit or pre-commit gate failed; nothing committed", file=sys.stderr)
+                return bridge_kit.EXIT_COMMIT_FAILED
+        finally:
+            retained_message.unlink(missing_ok=True)
+            try:
+                retained_message.parent.rmdir()
+            except OSError:
+                pass
+    print("copilot-bridge: committed")
+    return bridge_kit.EXIT_COMMITTED
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -14,12 +14,9 @@ behaves according to environment variables:
 It also models the honest behavior of a real agent: it writes its commit message to the scratch
 path the bridge told it about, which it finds by scanning its arguments and stdin.
 
-It also answers the three questions the Codex and OpenCode preflights ask (`--version`,
-`exec --help`/`run --help`, and OpenCode's `debug agents --standalone`), with the same long flags a
-real agent documents, so the conformance suite exercises each preflight instead of bypassing it
-(ADR-0060, ADR-0061). It identifies as itself, not as Codex or OpenCode, so the probes that only a
-real agent can answer (the sandbox runtime, the guard plugin, project isolation, the model catalog)
-are not applied to it.
+It also answers the preflight questions Codex, OpenCode, and Copilot ask. Its Copilot-shaped help
+contains every policy flag the bridge uses, while its distinct identity deliberately bypasses
+host-specific MXC checks; it is not a fake provider runtime (ADR-0060, ADR-0061, ADR-0063).
 """
 
 import json
@@ -60,6 +57,29 @@ FLAGS
       --standalone      Run without the background service
 """
 
+COPILOT_HELP = """Usage: copilot [OPTIONS]
+  -C, --cd <directory>
+  -p, --prompt <text>
+      --output-format <format>
+      --allow-all-tools
+      --available-tools [<tools>...]
+      --deny-tool [<tools>...]
+      --disallow-temp-dir
+      --deny-url [<urls>...]
+      --disable-builtin-mcps
+      --additional-mcp-config <json>
+      --secret-env-vars [<vars>...]
+      --no-custom-instructions
+      --no-auto-update
+      --no-ask-user
+      --no-bash-env
+      --no-experimental
+"""
+
+COPILOT_SANDBOX_HELP = """Command Sandboxing:
+  Enable it with --sandbox for one session.
+"""
+
 
 def answer_preflight(arguments):
     """Returns an exit code when the invocation is a preflight question, else None."""
@@ -71,6 +91,12 @@ def answer_preflight(arguments):
         return 0
     if arguments[:1] == ["run"] and any(part in ("--help", "-h") for part in arguments[1:]):
         print(RUN_HELP)
+        return 0
+    if arguments[:1] == ["--help"] or arguments[:1] == ["-h"]:
+        print(COPILOT_HELP)
+        return 0
+    if arguments[:2] == ["help", "sandbox"]:
+        print(COPILOT_SANDBOX_HELP)
         return 0
     if arguments[:1] == ["debug"] and arguments[1:2] == ["agents"]:
         print(json.dumps(configured_agents()))

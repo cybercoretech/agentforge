@@ -75,6 +75,12 @@ BRIDGES = [
         "agent_flag": "--opencode",
         "extra_args": [],
     },
+    {
+        "name": "copilot",
+        "path": ROOT / "scripts" / "agents" / "copilot-bridge",
+        "agent_flag": "--copilot",
+        "extra_args": [],
+    },
 ]
 
 

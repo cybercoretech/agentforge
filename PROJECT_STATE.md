@@ -11,12 +11,12 @@
 
 Phase A of 1.0 is complete (ADR-0056). The shared bridge kit, the Codex CLI bridge, its
 preflight, the OpenCode bridge, and provider-neutral `forge doctor --agents` are complete:
-bridges are thin adapters over one kit, and conformance — thirty-three end-to-end cases — is the
+bridges are thin adapters over one kit, and conformance — forty-four end-to-end cases — is the
 price of being first-party.
 
 ## Active milestone
 
-P6-M010 — GitHub Copilot CLI bridge — is approved and awaiting implementation. Its plan is
+P6-M010 — GitHub Copilot CLI bridge — is implemented and awaiting validation. Its plan is
 `.plans/P6-M010-selected-agent-bridges.plan.md`. Gemini CLI and Cursor Agent need dedicated
 provider-policy compatibility milestones before first-party support. P6-M009 —
 repository governance hardening — is complete; its remediation keeps GitHub's SHA-pinning

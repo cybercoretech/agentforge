@@ -292,6 +292,45 @@ sessions therefore accumulate in the operator's OpenCode store, and the run uses
 credentials. `snapshots` is off so OpenCode writes no snapshot store into the worktree, and the
 title agent is disabled so a run spends no auxiliary request naming its session.
 
+### The GitHub Copilot CLI bridge
+
+```text
+# .forge/agents/copilot.conf
+version=1
+executable=/usr/bin/python3
+argument=/path/to/agentforge/scripts/agents/copilot-bridge
+argument=--copilot
+argument=/absolute/path/to/copilot
+env.PATH=/usr/bin:/bin:/home/operator/.local/bin
+env.HOME=/home/operator
+timeout_ms=3600000
+max_output_bytes=8388608
+```
+
+The bridge runs `copilot -p` with JSONL output, a fresh isolated `COPILOT_HOME`, no custom
+instructions, no auto-update, no ask-user tool, disabled built-in MCP, and MXC sandboxing
+(ADR-0063). It never passes trust-folder, add-directory, plugins, fleet, session resume,
+`--allow-all`, `--yolo`, unrestricted paths, or unrestricted URLs.
+
+Copilot requires `--allow-all-tools` for prompt mode. The bridge uses it only together with a
+strict `--available-tools` inventory and explicit denials, which Copilot documents as taking
+precedence. File tools are available; shell follows `run_local_commands`; web tools and sandbox
+outbound/local networking follow `use_network`; and the only MCP server is the bridge-owned
+AgentForge gateway for `use_mcp_tools`. Git mutation commands are denied. The shared kit still
+rejects every changed path outside the task contract.
+
+The bridge-owned sandbox policy disables bypasses and developer-tool access, sandboxes local stdio
+MCP and LSP children, and disables network unless the task grants it. Linux preflight verifies
+Copilot's documented MXC requirements, including `bwrap`, `slirp4netns`, namespace/firewall tools,
+and read/write TUN; an unavailable prerequisite exits 2 before a model request and never falls back
+to an unsandboxed run.
+
+Known sensitive environment names are supplied to `--secret-env-vars`, which strips them from
+shell/MCP children and redacts output. This is not a general secret scanner: arbitrary variable
+names and secret files remain an operator responsibility. Isolated `COPILOT_HOME` also means user
+settings and home-stored credentials are not inherited; use a supported authentication mechanism
+without expanding the bridge environment.
+
 ### Working on a bridge
 
 ```text
@@ -299,10 +338,12 @@ python3 scripts/agents/bridge_kit.py --self-test       # the shared kit, includi
 ./scripts/agents/claude-code-bridge --self-test        # the bridge's own policy
 ./scripts/agents/codex-bridge --self-test              # Codex's sandbox and argv policy
 ./scripts/agents/opencode-bridge --self-test           # OpenCode's policy, config, and decoder
+./scripts/agents/copilot-bridge --self-test            # Copilot's policy, MXC, and argv
 python3 scripts/agents/bridge_conformance.py           # every registered bridge, end to end
 python3 scripts/agents/bridge_conformance.py --list    # which bridges are registered
 python3 scripts/agents/codex_e2e.py                    # real Codex, or SKIP when it is absent
 python3 scripts/agents/opencode_e2e.py                 # real OpenCode, or SKIP when it is absent
+python3 scripts/agents/copilot_e2e.py                  # real Copilot only when explicitly opted in
 ```
 
 The conformance suite drives each bridge against a stub agent in a throwaway Git repository and

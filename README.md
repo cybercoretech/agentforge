@@ -340,9 +340,10 @@ forge task launch-batch /path/to/project --profile local-agent [--max 4]
 
 See [`docs/SCHEDULING.md`](docs/SCHEDULING.md#concurrent-batch-launch).
 
-Run a real coding agent: `scripts/agents/claude-code-bridge` lets Claude Code work as an AgentForge
-agent. It translates the task contract into instructions, refuses to commit changes outside the
-task's paths, and commits the agent's work so gates, review, and integration apply. See
+Run a real coding agent: `scripts/agents/claude-code-bridge`, `scripts/agents/codex-bridge`,
+`scripts/agents/opencode-bridge`, and `scripts/agents/copilot-bridge` translate the task contract
+into provider policy, refuse to commit changes outside task paths, and commit agent work so gates,
+review, and integration apply. See
 [`docs/AGENT_PROFILES.md`](docs/AGENT_PROFILES.md#real-agents-the-claude-code-bridge) and the
 [dogfooding log](docs/DOGFOODING.md).
 
@@ -633,8 +634,8 @@ Candidate next milestones, each still requiring its own approved plan:
 
 - restore verifiable evidence on the canonical repository: a CI gate on `main` and a `0.4.0`
   release whose archives carry binaries, an SBOM, and provenance (ADR-0056, Phase 0);
-- a shared agent-bridge kit, with Codex CLI and OpenCode as the first additional bridges and local
-  inference as an acceptance criterion (ADR-0056, Phase A);
+- a shared agent-bridge kit, with Codex CLI, OpenCode, and GitHub Copilot CLI as first-party
+  bridges (ADR-0056, ADR-0063);
 - remote (HTTP) MCP servers behind the gateway (P3);
 - a two-machine remote-worker run over a real network (P4).
 

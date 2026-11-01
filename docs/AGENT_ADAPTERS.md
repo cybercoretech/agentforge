@@ -33,3 +33,9 @@ task state.
 
 Capability and path declarations are task instructions, not an OS sandbox. The adapter provides no
 network or filesystem isolation, credential access, automatic Git operations, or provider behavior.
+
+Provider bridges add their own documented controls beneath this adapter boundary. The GitHub Copilot
+CLI bridge (ADR-0063) is the first bridge here with an MXC command sandbox; its preflight and
+bridge-owned policy decide whether that provider can honour shell, network, MCP, and writable-path
+capabilities. The adapter and shared bridge kit still enforce the final changed-path and commit
+contract independently of provider policy.
