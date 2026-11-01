@@ -39,7 +39,8 @@ The repository-policy job validates:
 - active-plan state;
 - plan-first implementation authority.
 - bridge self-tests, adversarial conformance, and optional provider E2E harnesses. The Copilot
-  E2E harness emits `SKIP` unless an operator explicitly permits credentialed model requests.
+  E2E harness emits `SKIP` unless an operator explicitly permits credentialed model requests; its
+  live path proves a bounded commit and an out-of-boundary no-commit refusal.
 
 For staged local changes, implementation-sensitive paths require an Approved plan already in HEAD.
 

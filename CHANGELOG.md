@@ -12,7 +12,8 @@ All notable AgentForge changes are documented here. The format follows
   bridge-owned isolated home, MXC sandbox, strict tool inventory, explicit denials, disabled
   built-in MCP, and task-governed shell, network, MCP, and path surfaces (P6-M010, ADR-0063).
   Copilot's mandatory prompt-mode `--allow-all-tools` is paired with `--available-tools` and
-  denials; unrestricted paths, URLs, and approval shortcuts are never used.
+  denials; its file inventory includes `create` and `edit` for write-owned-path tasks without shell
+  authority; unrestricted paths, URLs, and approval shortcuts are never used.
 - Copilot preflight validates its documented flags and Linux MXC requirements before agent
   execution. `copilot_e2e.py` is a named skip in CI unless an operator explicitly opts into
   credentialed model calls; the authorized Blackbox proof passed a bounded commit and an

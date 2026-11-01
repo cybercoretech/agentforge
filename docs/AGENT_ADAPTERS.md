@@ -37,5 +37,6 @@ network or filesystem isolation, credential access, automatic Git operations, or
 Provider bridges add their own documented controls beneath this adapter boundary. The GitHub Copilot
 CLI bridge (ADR-0063) is the first bridge here with an MXC command sandbox; its preflight and
 bridge-owned policy decide whether that provider can honour shell, network, MCP, and writable-path
-capabilities. The adapter and shared bridge kit still enforce the final changed-path and commit
-contract independently of provider policy.
+capabilities. Its live E2E proves a bounded commit and an out-of-boundary no-commit refusal; the
+adapter and shared bridge kit still enforce the final changed-path and commit contract independently
+of provider policy.

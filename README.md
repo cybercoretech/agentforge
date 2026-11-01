@@ -17,6 +17,11 @@ CI observations, audit records, and human decisions. 🧭
 > **Canonical repository:** [`cybercoretech/agentforge`](https://github.com/cybercoretech/agentforge).
 > Its earlier history (up to `976c4f9`) came over from the old `darkstardevx/agentforge` copy,
 > which is now retired.
+>
+> **Bridge support 🧩:** Claude Code, Codex CLI, OpenCode, and GitHub Copilot CLI run through the
+> shared conformance-tested bridge kit. Copilot uses an MXC sandbox and has a verified live
+> bounded-commit and out-of-boundary refusal proof. Gemini CLI and Cursor Agent need separate
+> compatibility milestones before first-party support.
 
 [![CI](https://github.com/cybercoretech/agentforge/actions/workflows/ci.yml/badge.svg)](https://github.com/cybercoretech/agentforge/actions/workflows/ci.yml)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](https://www.rust-lang.org/)
@@ -343,7 +348,9 @@ See [`docs/SCHEDULING.md`](docs/SCHEDULING.md#concurrent-batch-launch).
 Run a real coding agent: `scripts/agents/claude-code-bridge`, `scripts/agents/codex-bridge`,
 `scripts/agents/opencode-bridge`, and `scripts/agents/copilot-bridge` translate the task contract
 into provider policy, refuse to commit changes outside task paths, and commit agent work so gates,
-review, and integration apply. See
+review, and integration apply. Copilot's Linux profile additionally needs the documented MXC
+prerequisites, including `bwrap` and `slirp4netns`; its preflight refuses unsandboxed execution.
+See
 [`docs/AGENT_PROFILES.md`](docs/AGENT_PROFILES.md#real-agents-the-claude-code-bridge) and the
 [dogfooding log](docs/DOGFOODING.md).
 
@@ -630,12 +637,13 @@ paths and restored reliable CI:
 - **P6-M003** release [`v0.4.0`](https://github.com/cybercoretech/agentforge/releases/tag/v0.4.0)
   with external MCP servers, attested archives, and a CycloneDX SBOM.
 
-Candidate next milestones, each still requiring its own approved plan:
+Current and candidate milestone status:
 
 - restore verifiable evidence on the canonical repository: a CI gate on `main` and a `0.4.0`
   release whose archives carry binaries, an SBOM, and provenance (ADR-0056, Phase 0);
-- a shared agent-bridge kit, with Codex CLI, OpenCode, and GitHub Copilot CLI as first-party
-  bridges (ADR-0056, ADR-0063);
+- the shared agent-bridge kit supports Claude Code, Codex CLI, OpenCode, and GitHub Copilot CLI
+  (ADR-0056, ADR-0063); Gemini CLI and Cursor Agent remain separate compatibility milestones that
+  each require an approved plan before implementation;
 - remote (HTTP) MCP servers behind the gateway (P3);
 - a two-machine remote-worker run over a real network (P4).
 

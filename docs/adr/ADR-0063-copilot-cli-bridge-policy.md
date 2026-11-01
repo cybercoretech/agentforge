@@ -19,8 +19,9 @@ rules, a per-session MXC command sandbox, and local stdio MCP support. Prompt mo
   ask-user tool, and no session resume, project trust, add-directory, plugin, fleet, or unrestricted
   permission flag.
 - The bridge always passes `--allow-all-tools` because Copilot requires it in noninteractive mode,
-  but pairs it with `--available-tools` and explicit denials. File tools are minimal; `shell`,
-  web tools/egress, and the sole `agentforge` MCP server appear only for their task capabilities.
+  but pairs it with `--available-tools` and explicit denials. File tools are limited to `read`,
+  `grep`, `glob`, `create`, and `edit`; `shell`, web tools/egress, and the sole `agentforge` MCP
+  server appear only for their task capabilities.
   Git mutation commands are denied. `--allow-all`, `--yolo`, unrestricted paths, and unrestricted
   URLs are never used.
 - The bridge writes bridge-owned `settings.json`: sandbox enabled, no bypass, no developer-tool
@@ -47,3 +48,8 @@ must provide a supported authentication mechanism without broadening the bridge 
 
 `copilot_e2e.py` is opt-in (`AGENTFORGE_COPILOT_E2E=1`) because a real model call can spend credits;
 otherwise it emits a named `SKIP` in CI.
+
+On Blackbox, after `slirp4netns 1.3.6` met the Linux MXC prerequisite, the explicitly authorized
+live proof completed a bounded in-path commit and an out-of-boundary no-commit refusal. The latter
+may be denied by MXC before the shared kit observes a path violation; both layers preserve the
+no-unauthorized-commit invariant.

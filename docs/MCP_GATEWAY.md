@@ -17,8 +17,9 @@ forge mcp serve --contract <task-prompt-file> --worktree <dir> [--root <project>
   project's gate profiles. Without it (a remote worker's clone has no project state), calls are
   logged to stderr only and `run_gate` is not offered.
 
-Normally you don't run it yourself: the Claude Code bridge starts it for tasks that hold
-`use_mcp_tools` (see [Using it with the Claude Code bridge](#using-it-with-the-claude-code-bridge)).
+Normally you don't run it yourself: a first-party bridge starts it for tasks that hold
+`use_mcp_tools`. Claude Code, Codex CLI, and GitHub Copilot CLI each use bridge-owned MCP
+configuration; see [Using it with first-party bridges](#using-it-with-first-party-bridges).
 
 ## Tools and the capabilities they need
 
@@ -77,7 +78,7 @@ order (P0-M015).
 - There are no resources, prompts, sampling, or elicitation, and `tools/list` does not change during
   a session.
 
-## Using it with the Claude Code bridge
+## Using it with first-party bridges
 
 Give the task the capabilities:
 
@@ -95,7 +96,7 @@ argument=--forge
 argument=/home/you/.cargo/bin/forge
 ```
 
-For such a task the bridge:
+For such a task the Claude Code bridge:
 - saves the contract;
 - writes an MCP config naming `forge mcp serve` (with `--root` when the worktree's project has task
   state);
@@ -110,6 +111,12 @@ Verified with a real Claude Code session (P3-M005). Through `forge run`, the age
 `task_contract`, `check_changes` (1 changed path, 0 denied), and `run_gate` (passed). It created
 the file within scope, and the bridge committed it. The orchestrator's gate passed 1/1, and all
 three calls are `ToolInvoked` events in the project's audit log.
+
+The Codex and Copilot bridges build their MCP configuration from the same contract and expose only
+the `agentforge` server when `use_mcp_tools` is present. Both refuse a task with that capability
+when the bridge cannot resolve `forge`; neither silently drops MCP authority. Copilot also runs its
+local stdio MCP child inside its MXC sandbox. OpenCode currently refuses `use_mcp_tools` because
+its headless MCP surface has not met the first-party compatibility boundary.
 
 ## External MCP servers (P3-M006)
 
