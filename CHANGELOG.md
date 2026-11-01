@@ -8,6 +8,16 @@ All notable AgentForge changes are documented here. The format follows
 
 ### Added
 
+- A GitHub Copilot CLI bridge, `scripts/agents/copilot-bridge`, runs on the shared kit with a
+  bridge-owned isolated home, MXC sandbox, strict tool inventory, explicit denials, disabled
+  built-in MCP, and task-governed shell, network, MCP, and path surfaces (P6-M010, ADR-0063).
+  Copilot's mandatory prompt-mode `--allow-all-tools` is paired with `--available-tools` and
+  denials; unrestricted paths, URLs, and approval shortcuts are never used.
+- Copilot preflight validates its documented flags and Linux MXC requirements before agent
+  execution. `copilot_e2e.py` is a named skip in CI unless an operator explicitly opts into
+  credentialed model calls.
+- The conformance suite now covers four bridges: forty-four end-to-end cases, with no case added
+  for Copilot.
 - `forge doctor [<root>] --agents` reports every local agent profile in deterministic order without
   running it or reaching the network (P6-M008, ADR-0062). For each `.forge/agents/*.conf` it checks
   that the profile loads, that its executable is an absolute existing regular file with an execute
