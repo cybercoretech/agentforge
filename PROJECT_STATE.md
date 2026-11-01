@@ -16,8 +16,9 @@ price of being first-party.
 
 ## Active milestone
 
-P6-M010 — Gemini, GitHub Copilot, and Cursor Agent bridges — is approved and awaiting
-implementation. Its plan is `.plans/P6-M010-selected-agent-bridges.plan.md`. P6-M009 —
+P6-M010 — GitHub Copilot CLI bridge — is approved and awaiting implementation. Its plan is
+`.plans/P6-M010-selected-agent-bridges.plan.md`. Gemini CLI and Cursor Agent need dedicated
+provider-policy compatibility milestones before first-party support. P6-M009 —
 repository governance hardening — is complete; its remediation keeps GitHub's SHA-pinning
 enforcement while making the Pages artifact action compatible with that policy. P6-M008 —
 provider-neutral `forge doctor --agents` — is complete; its plan is

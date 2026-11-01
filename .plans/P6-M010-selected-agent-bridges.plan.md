@@ -1,4 +1,4 @@
-# Plan: P6-M010 — Gemini, Copilot, and Cursor bridges
+# Plan: P6-M010 — GitHub Copilot CLI bridge
 
 Status: Approved
 Milestone: P6-M010
@@ -6,32 +6,22 @@ Created: 2026-10-31
 
 ## Goal
 
-Add first-party AgentForge bridges for the first selected local coding agents: Gemini CLI, GitHub
-Copilot CLI, and Cursor Agent. Each bridge must preserve the shared prompt, task-boundary, commit,
-and exit-code contract while enforcing the strongest documented noninteractive policy available
-from its provider.
+Add a first-party AgentForge bridge for GitHub Copilot CLI. It must preserve the shared prompt,
+task-boundary, commit, and exit-code contract while enforcing Copilot's documented noninteractive
+permission and sandbox controls.
 
 ## Scope
 
-- Add one thin bridge for each selected CLI, each on `bridge_kit.py`.
-- Run every bridge through the existing adversarial conformance suite.
-- Add provider-specific preflight, command construction, failure reporting, and self-tests.
-- Add optional real-CLI E2E harnesses that skip honestly when credentials or prerequisite sandbox
+- Add one thin bridge on `bridge_kit.py`.
+- Run it through the existing adversarial conformance suite.
+- Add Copilot-specific preflight, command construction, failure reporting, and self-tests.
+- Add an optional real-CLI E2E harness that skips honestly when credentials or prerequisite sandbox
   support are absent.
-- Register each bridge's self-test, conformance coverage, and E2E harness in CI.
+- Register the bridge's self-test, conformance coverage, and E2E harness in CI.
 - Document profiles, policy limits, model selection, MCP support or refusal, and local validation.
 - Record the provider-policy boundary in a new ADR.
 
 ## Provider policy requirements
-
-### Gemini CLI
-
-- Run headlessly with `-p`, machine-readable output, and a bridge-owned prompt.
-- Refuse Gemini-created worktrees and unrestricted approval modes.
-- Require the provider sandbox and verify its prerequisite/runtime before spending tokens.
-- Build policy from a bridge-owned temporary file; do not trust repository or user policy.
-- Make network and MCP availability follow task capabilities, or refuse a capability that the
-  installed Gemini interface cannot constrain.
 
 ### GitHub Copilot CLI
 
@@ -43,18 +33,10 @@ from its provider.
   `use_mcp_tools`, through a bridge-owned temporary configuration.
 - Refuse when sandbox prerequisites or the documented permission surface are unavailable.
 
-### Cursor Agent
-
-- Run headlessly with `--print`, structured output, the AgentForge worktree, and provider sandbox
-  enabled.
-- Never pass `--force`, `--yolo`, or `--worktree`; disable project plugins and unreviewed MCP
-  configuration.
-- Prove that the installed CLI's sandbox and configuration format can express the task's path,
-  network, shell, and MCP boundaries before enabling any mutating task. Refuse unsupported
-  capability combinations instead of relying on instructions.
-
 ## Non-goals
 
+- No Gemini CLI or Cursor Agent bridge in this milestone; their provider policy surfaces require
+  dedicated compatibility milestones before AgentForge can make first-party guarantees.
 - No bridge for Crush, Grok, Antigravity, Hermes Agent, or any other selected CLI in this milestone.
 - No general provider registry, automatic agent discovery, or profile-format change.
 - No claim that a provider policy is an operating-system sandbox unless the provider's documented
@@ -65,11 +47,9 @@ from its provider.
 ## Expected file boundary
 
 - `.plans/P6-M010-selected-agent-bridges.plan.md`, `.plans/ACTIVE`
-- `docs/adr/ADR-0063-selected-agent-bridge-policy.md`, `docs/adr/README.md`
-- `scripts/agents/gemini-bridge`, `scripts/agents/copilot-bridge`,
-  `scripts/agents/cursor-agent-bridge`
-- `scripts/agents/gemini_e2e.py`, `scripts/agents/copilot_e2e.py`,
-  `scripts/agents/cursor_agent_e2e.py`
+- `docs/adr/ADR-0063-copilot-cli-bridge-policy.md`, `docs/adr/README.md`
+- `scripts/agents/copilot-bridge`
+- `scripts/agents/copilot_e2e.py`
 - `scripts/agents/bridge_conformance.py`
 - `.github/workflows/ci.yml`
 - `docs/AGENT_PROFILES.md`, `docs/AGENT_ADAPTERS.md`, `docs/CI.md`
@@ -79,20 +59,19 @@ from its provider.
 
 | Check | Coverage |
 | --- | --- |
-| Shared contract | Existing conformance cases pass for all three bridges. |
-| Unsafe flags | Each bridge self-test asserts its provider's worktree, unrestricted approval, resume, plugin, and session flags are absent. |
+| Shared contract | Existing conformance cases pass for the Copilot bridge. |
+| Unsafe flags | The self-test asserts unrestricted approval, unrestricted paths, URLs, session resume, plugin, and workspace configuration flags are absent. |
 | Capability policy | Self-tests prove shell, network, MCP, path, and secret policy follow the task or fail closed. |
-| Preflight | Stubs cover missing executables, changed/removed flags, missing sandbox prerequisites, malformed provider policy, and unavailable capability enforcement. |
-| Real execution | Each E2E harness proves a bounded in-path commit and a path-violation refusal, or prints a specific `SKIP` and exits zero when its optional live prerequisite is unavailable. |
+| Preflight | Stubs cover missing executables, changed/removed flags, missing sandbox prerequisites, malformed MCP configuration, and unavailable capability enforcement. |
+| Real execution | The E2E harness proves a bounded in-path commit and a path-violation refusal, or prints a specific `SKIP` and exits zero when its optional live prerequisite is unavailable. |
 | Documentation | Validators and review confirm profiles and claimed policy boundaries match the command builders. |
 
 ## Implementation sequence
 
 1. Commit this plan and active pointer separately from implementation.
 2. Verify the plan-only checkpoint locally and in exact-head CI.
-3. Implement Gemini, then Copilot, then Cursor; run the provider self-test and conformance suite
-   after each bridge.
-4. Add E2E harnesses and CI coverage.
+3. Implement Copilot; run its self-test and conformance suite.
+4. Add its E2E harness and CI coverage.
 5. Update the ADR and operator documentation.
 6. Run the full gate, push, confirm exact-head CI and Pages, then close and tag the milestone.
 
@@ -106,12 +85,12 @@ from its provider.
 
 ## Acceptance criteria
 
-- [ ] Gemini, Copilot, and Cursor each have a provider-specific, fail-closed bridge with no
-      unrestricted approval, unmanaged worktree, or unreviewed project configuration path.
-- [ ] Every bridge passes the shared adversarial conformance suite.
-- [ ] Every provider's sandbox and permission preflight produces an actionable exit 2 before an
+- [ ] Copilot has a provider-specific, fail-closed bridge with no unrestricted approval, unmanaged
+      worktree, or unreviewed project configuration path.
+- [ ] The bridge passes the shared adversarial conformance suite.
+- [ ] Copilot's sandbox and permission preflight produces an actionable exit 2 before an
       agent runs when the planned policy cannot be established.
-- [ ] Network, shell, MCP, and writable paths follow task capabilities or are explicitly refused.
+- [ ] Network, shell, MCP, and writable paths follow task capabilities.
 - [ ] Real-CLI E2E coverage proves a commit and an out-of-boundary refusal when prerequisites are
       available; a missing optional live prerequisite is a named skip, never false success.
 - [ ] Documentation and CI match the implemented bridge surface.
