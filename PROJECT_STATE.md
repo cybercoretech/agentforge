@@ -16,8 +16,10 @@ price of being first-party.
 
 ## Active milestone
 
-P6-M010 — GitHub Copilot CLI bridge — is implemented and awaiting validation. Its plan is
-`.plans/P6-M010-selected-agent-bridges.plan.md`. Gemini CLI and Cursor Agent need dedicated
+P6-M010 — GitHub Copilot CLI bridge — is implemented and validated on Blackbox, and awaits the
+required independent PR review and merge. Its live E2E passed a bounded in-path commit and an
+out-of-boundary no-commit refusal after `slirp4netns` satisfied the MXC host prerequisite. Its plan
+is `.plans/P6-M010-selected-agent-bridges.plan.md`. Gemini CLI and Cursor Agent need dedicated
 provider-policy compatibility milestones before first-party support. P6-M009 —
 repository governance hardening — is complete; its remediation keeps GitHub's SHA-pinning
 enforcement while making the Pages artifact action compatible with that policy. P6-M008 —
