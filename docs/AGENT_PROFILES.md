@@ -294,6 +294,10 @@ title agent is disabled so a run spends no auxiliary request naming its session.
 
 ### The GitHub Copilot CLI bridge
 
+> ✅ **Live proof:** On Blackbox, the explicitly authorized E2E completed a bounded in-path commit
+> and an out-of-boundary no-commit refusal after the MXC `slirp4netns` prerequisite was installed.
+> CI keeps this E2E opt-in so normal workflow runs never spend provider credits.
+
 ```text
 # .forge/agents/copilot.conf
 version=1
@@ -314,10 +318,10 @@ instructions, no auto-update, no ask-user tool, disabled built-in MCP, and MXC s
 
 Copilot requires `--allow-all-tools` for prompt mode. The bridge uses it only together with a
 strict `--available-tools` inventory and explicit denials, which Copilot documents as taking
-precedence. File tools are available; shell follows `run_local_commands`; web tools and sandbox
-outbound/local networking follow `use_network`; and the only MCP server is the bridge-owned
-AgentForge gateway for `use_mcp_tools`. Git mutation commands are denied. The shared kit still
-rejects every changed path outside the task contract.
+precedence. The available file tools are `read`, `grep`, `glob`, `create`, and `edit`; shell follows
+`run_local_commands`; web tools and sandbox outbound/local networking follow `use_network`; and
+the only MCP server is the bridge-owned AgentForge gateway for `use_mcp_tools`. Git mutation
+commands are denied. The shared kit still rejects every changed path outside the task contract.
 
 The bridge-owned sandbox policy disables bypasses and developer-tool access, sandboxes local stdio
 MCP and LSP children, and disables network unless the task grants it. Linux preflight verifies
@@ -344,6 +348,7 @@ python3 scripts/agents/bridge_conformance.py --list    # which bridges are regis
 python3 scripts/agents/codex_e2e.py                    # real Codex, or SKIP when it is absent
 python3 scripts/agents/opencode_e2e.py                 # real OpenCode, or SKIP when it is absent
 python3 scripts/agents/copilot_e2e.py                  # real Copilot only when explicitly opted in
+AGENTFORGE_COPILOT_E2E=1 python3 scripts/agents/copilot_e2e.py  # live bounded proof; may spend credits
 ```
 
 The conformance suite drives each bridge against a stub agent in a throwaway Git repository and

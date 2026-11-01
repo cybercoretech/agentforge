@@ -9,10 +9,10 @@
 
 ## Current phase
 
-Phase A of 1.0 is complete (ADR-0056). The shared bridge kit, the Codex CLI bridge, its
-preflight, the OpenCode bridge, and provider-neutral `forge doctor --agents` are complete:
-bridges are thin adapters over one kit, and conformance — forty-four end-to-end cases — is the
-price of being first-party.
+Phase A of 1.0 is complete (ADR-0056). The shared bridge kit, Claude Code, Codex CLI, OpenCode,
+and GitHub Copilot CLI bridges, their provider-specific preflights, and provider-neutral
+`forge doctor --agents` are complete in this source branch: bridges are thin adapters over one kit,
+and conformance — forty-four end-to-end cases — is the price of being first-party.
 
 ## Active milestone
 

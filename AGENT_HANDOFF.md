@@ -2,9 +2,15 @@
 
 ## Repository state
 
-- Active milestone: none. P3-M006 is complete (`3939aff`, `de0f0f7`): external MCP servers go in
-  `.forge/mcp/<server>.conf` with `tool.<name>=<capability>` lines (unmapped means invisible); see
-  `docs/MCP_GATEWAY.md`. Finding 23 (the audit lock can starve a writer) is open.
+- **Current milestone:** P6-M010 GitHub Copilot CLI bridge is technically complete on PR #2 and
+  awaits the repository's required independent approval and merge. Its live Blackbox E2E passed a
+  bounded commit and out-of-boundary no-commit refusal after `slirp4netns 1.3.6` satisfied MXC.
+- **Current bridge set:** Claude Code, Codex CLI, OpenCode, and GitHub Copilot CLI use the shared
+  conformance-tested kit. Agent profiles are per-project under `.forge/agents/`; this repository
+  itself currently has no configured profiles. Gemini CLI and Cursor Agent need separate approved
+  compatibility milestones before first-party support.
+- **Historical handoff notes:** The entries below preserve prior milestone evidence. Consult
+  `PROJECT_STATE.md`, `docs/MILESTONES.md`, and the active plan for current status.
 - P5-M007 is complete: **`v0.3.1` is published** (tag on `899d3d1`), the
   first release with an attested SBOM and the remote-worker fixes. `scripts/rehearse-two-hosts`
   now defaults to it.
