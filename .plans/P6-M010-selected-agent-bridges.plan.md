@@ -63,7 +63,7 @@ permission and sandbox controls.
 | Unsafe flags | The self-test asserts unrestricted approval, unrestricted paths, URLs, session resume, plugin, and workspace configuration flags are absent. |
 | Capability policy | Self-tests prove shell, network, MCP, path, and secret policy follow the task or fail closed. |
 | Preflight | Stubs cover missing executables, changed/removed flags, missing sandbox prerequisites, malformed MCP configuration, and unavailable capability enforcement. |
-| Real execution | The E2E harness proves a bounded in-path commit and a path-violation refusal, or prints a specific `SKIP` and exits zero when its optional live prerequisite is unavailable. |
+| Real execution | The E2E harness proves a bounded in-path commit and an out-of-boundary refusal by the sandbox or final path guard, or prints a specific `SKIP` and exits zero when its optional live prerequisite is unavailable. |
 | Documentation | Validators and review confirm profiles and claimed policy boundaries match the command builders. |
 
 ## Implementation sequence
@@ -92,13 +92,15 @@ permission and sandbox controls.
       agent runs when the planned policy cannot be established.
 - [ ] Network, shell, MCP, and writable paths follow task capabilities.
 - [ ] Real-CLI E2E coverage proves a commit and an out-of-boundary refusal when prerequisites are
-      available; a missing optional live prerequisite is a named skip, never false success.
+      available; the sandbox may refuse before the final path guard, and a missing optional live
+      prerequisite is a named skip, never false success.
 - [ ] Documentation and CI match the implemented bridge surface.
 
 ## Completion record
 
-Implementation commit: pending
-CI run: pending
-Pages: pending
-Completed: pending
-Notes: pending
+Implementation commits: `efd4c59` (bridge) and this follow-up validation correction
+CI run: `41270345444` passed for `efd4c5954f2445c8c9e07e354e009aa0d0b30179`
+Pages: not triggered for the pull-request branch
+Completed: pending required independent review and merge
+Notes: Blackbox installed `slirp4netns 1.3.6`; the explicitly authorized live E2E passed a bounded
+in-path commit and an out-of-boundary no-commit refusal.

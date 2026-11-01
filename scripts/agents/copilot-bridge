@@ -23,7 +23,7 @@ PREFLIGHT_TIMEOUT = 30
 
 # These are the documented built-in tool names.  The available-tools list decides what the model
 # can see; deny rules are a separate defence because --allow-all-tools is mandatory for -p.
-FILE_TOOLS = ("read", "grep", "glob", "write", "edit")
+FILE_TOOLS = ("read", "grep", "glob", "create", "edit")
 NETWORK_TOOLS = ("web_fetch", "web_search")
 FORBIDDEN_FLAGS = (
     "--allow-all",

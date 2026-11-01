@@ -15,7 +15,8 @@ All notable AgentForge changes are documented here. The format follows
   denials; unrestricted paths, URLs, and approval shortcuts are never used.
 - Copilot preflight validates its documented flags and Linux MXC requirements before agent
   execution. `copilot_e2e.py` is a named skip in CI unless an operator explicitly opts into
-  credentialed model calls.
+  credentialed model calls; the authorized Blackbox proof passed a bounded commit and an
+  out-of-boundary no-commit refusal.
 - The conformance suite now covers four bridges: forty-four end-to-end cases, with no case added
   for Copilot.
 - `forge doctor [<root>] --agents` reports every local agent profile in deterministic order without
