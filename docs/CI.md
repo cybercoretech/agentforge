@@ -58,6 +58,15 @@ permissions:
 
 A later job may receive broader authority only through an explicit reviewed requirement.
 
+## Repository controls
+
+The canonical GitHub repository protects `main`: changes arrive through pull requests, required
+checks must pass against the current base, and force pushes and branch deletion are disabled.
+
+Secret scanning with push protection and Dependabot security updates are enabled. All third-party
+actions are pinned to immutable full-length commit SHAs; the inline version comment records the
+intended upstream release. GitHub Actions also enforces that policy for future workflow changes.
+
 ## Dependency and cache policy
 
 All Cargo operations that consume the lockfile use `--locked`.
@@ -101,6 +110,10 @@ and MSRV gates, 40 for each platform-matrix host). A hung test fails its job wit
 instead of holding a runner until the six-hour platform default. The daemon lifecycle tests
 themselves use explicit readiness and exit deadlines, so a hang there fails the test with a named
 diagnostic well before the job timeout.
+
+Pages declares 20 minutes for the build job and 15 for deployment. Release builds have a
+45-minute limit per target, and publication has a 30-minute limit. These limits bound hosted
+runner usage without weakening their explicit artifact verification steps.
 
 ## Release workflow
 

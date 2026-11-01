@@ -17,6 +17,7 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.target }}
+    timeout-minutes: 45
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -37,7 +38,7 @@ jobs:
 
     steps:
       - name: Check out release source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.ref }}
 
@@ -74,7 +75,7 @@ jobs:
           python -c 'import hashlib, pathlib; p=pathlib.Path("dist") / "'"${archive_root}"'.tar.gz"; print(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}")' > "dist/${archive_root}.tar.gz.sha256"
 
       - name: Upload packaged artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.target }}
           path: dist/*
@@ -90,6 +91,7 @@ jobs:
     # attestations on the uploaded assets (P5-M006).
     name: Publish GitHub release
     needs: build
+    timeout-minutes: 30
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -100,12 +102,12 @@ jobs:
       # Checked out first: checkout cleans the workspace. It provides scripts/publish-release,
       # scripts/sbom-merge, and the Cargo metadata the SBOM is generated from.
       - name: Check out publish script
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.ref }}
 
       - name: Download packaged artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
           merge-multiple: true
@@ -172,7 +174,7 @@ jobs:
       # Keyless SLSA build provenance (Sigstore, from this workflow's OIDC identity): no key to
       # hold. Verify with `gh attestation verify <archive> -R cybercoretech/agentforge`.
       - name: Attest build provenance
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: release/*.tar.gz
 
@@ -180,7 +182,7 @@ jobs:
       # `gh attestation verify <archive> -R cybercoretech/agentforge --predicate-type
       # https://cyclonedx.org/bom`.
       - name: Attest the SBOM
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: release/*.tar.gz
           sbom-path: ${{ steps.sbom.outputs.path }}
