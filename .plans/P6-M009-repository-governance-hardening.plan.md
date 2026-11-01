@@ -1,6 +1,6 @@
 # Plan: P6-M009 — Repository governance hardening
 
-Status: Approved
+Status: Complete
 Milestone: P6-M009
 Created: 2026-10-31
 
@@ -75,14 +75,16 @@ GitHub repository settings are an accompanying external boundary:
 
 ## Completion record
 
-Implementation commit: pending remediation
-CI run: `41263057814` (`AgentForge CI`, exact pre-remediation implementation SHA)
-Pages: pending
-Completed: pending
-Notes: GitHub's SHA-pinning enforcement rejects the upstream
-`actions/upload-pages-artifact@v3` because its own `action.yml` invokes mutable
-`actions/upload-artifact@v4`. The remediation vendors only that small composite action locally and
-pins its nested upload action, preserving both the Pages artifact contract and the enforcement.
+Implementation commits: `992dda997d406d3f74a9726ae9c53a7b7439ad2a`,
+`3dc9f6231e6630593041461172d998351d7cfb9a`
+CI run: `41263542421` (`AgentForge CI`, exact remediation SHA)
+Pages: `41263542433` (`AgentForge Pages`, exact remediation SHA)
+Completed: 2026-10-31
+Notes: Secret scanning with push protection, Dependabot security updates, and action SHA-pinning
+are enabled on the canonical repository. `main` protection is applied after this closure commit's
+exact-head validation so it cannot block the governed migration. GitHub's SHA-pinning enforcement
+rejected the upstream `actions/upload-pages-artifact@v3` because it invoked mutable
+`actions/upload-artifact@v4`; the local equivalent pins that nested action and passed Pages.
 
 ## Remediation amendment: Pages artifact action SHA compatibility
 

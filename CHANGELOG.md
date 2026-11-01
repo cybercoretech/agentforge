@@ -51,6 +51,11 @@ All notable AgentForge changes are documented here. The format follows
 
 ### Fixed
 
+- The canonical repository now protects `main` with pull requests, required current-base checks,
+  review, conversation resolution, and linear history; force pushes and deletion are blocked.
+  GitHub secret scanning with push protection, Dependabot security updates, and Actions SHA
+  pinning are enabled. All workflows now pin third-party actions to immutable commit SHAs, and
+  Pages and release jobs declare explicit timeouts (P6-M009).
 - The OpenCode bridge cannot delete the worktree it runs in. `opencode_worktree_remove` ignores
   permission rules and deleted an active linked worktree with `force: true`; a bridge-owned plugin
   now removes the three worktree tools before the model sees them, and the preflight fails if the
