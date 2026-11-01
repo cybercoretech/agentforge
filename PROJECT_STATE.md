@@ -9,17 +9,28 @@
 
 ## Current phase
 
-Phase A of 1.0 is in progress (ADR-0056). The shared bridge kit, the Codex CLI bridge, its
-preflight, and the OpenCode bridge are complete: bridges are thin adapters over one kit, and
-conformance — thirty-three end-to-end cases — is the price of being first-party. Provider-neutral
-`forge doctor --agents` is in progress (P6-M008).
+Phase A of 1.0 is complete (ADR-0056). The shared bridge kit, the Codex CLI bridge, its
+preflight, the OpenCode bridge, and provider-neutral `forge doctor --agents` are complete:
+bridges are thin adapters over one kit, and conformance — thirty-three end-to-end cases — is the
+price of being first-party.
 
 ## Active milestone
 
-P6-M008 — provider-neutral `forge doctor --agents` — is approved and awaiting implementation. The
-plan is `.plans/P6-M008-forge-doctor-agents.plan.md`; ADR-0062 records the static, no-execution,
+No milestone is active. P6-M008 — provider-neutral `forge doctor --agents` — is complete; its plan
+is `.plans/P6-M008-forge-doctor-agents.plan.md`, and ADR-0062 records the static, no-execution,
 no-provider-detection boundary. `v0.4.0` is the latest release, and every completed milestone is
 tagged `milestone/<ID>`.
+
+## P6-M008 completion evidence
+
+- Approved plan: `.plans/P6-M008-forge-doctor-agents.plan.md`; ADR-0062 records the
+  provider-neutral, static-check boundary.
+- Implementation commit `b8fa5eb`; exact-head CI `40997769700` is green on all seven jobs, and
+  Pages `40997769596` is green on both jobs.
+- `forge doctor [<root>] --agents` lists profiles in deterministic order without running them or
+  contacting the network. It reports malformed and unusable profiles individually, checks
+  executable permissions and absolute arguments, warns for `--no-preflight`, and preserves the
+  default doctor's output.
 
 ## Known issues
 

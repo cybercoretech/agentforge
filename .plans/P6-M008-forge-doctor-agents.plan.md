@@ -1,6 +1,6 @@
 # Plan: P6-M008 — Provider-neutral `forge doctor --agents`
 
-Status: Approved
+Status: Complete
 Milestone: P6-M008
 Created: 2026-10-28
 
@@ -277,9 +277,12 @@ model the bit. No network, no subprocess, no unsafe.
 
 ## Completion record
 
-Implementation commit: pending
-CI run: pending
-Pages: pending
-CI result: pending
-Completed: pending
-Notes: pending
+Implementation commit: `b8fa5eb3b29b3afc154526ba457ee66c32724ebb`
+CI run: `40997769700` (`AgentForge CI`, exact implementation SHA)
+Pages: `40997769596` (`AgentForge Pages`, exact implementation SHA)
+CI result: seven of seven CI jobs and both Pages jobs passed
+Completed: 2026-10-30
+Notes: The implementation added deterministic static profile discovery and `forge doctor
+[<root>] --agents`, with CLI coverage for healthy, broken, permission-denied, missing-path,
+preflight-opt-out, root-selection, usage, and non-execution paths. It does not execute profiles
+or contact the network.
