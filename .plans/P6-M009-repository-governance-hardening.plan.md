@@ -1,6 +1,6 @@
 # Plan: P6-M009 — Repository governance hardening
 
-Status: Complete
+Status: Approved
 Milestone: P6-M009
 Created: 2026-10-31
 
@@ -18,6 +18,8 @@ bounded Pages and release jobs.
   SHA pinning for the repository.
 - Replace every third-party action tag in `.github/workflows/` with the exact commit SHA currently
   published by that action version, keeping the version as an inline comment.
+- Keep Pages compatible with GitHub's SHA-pinning enforcement by replacing the one upstream
+  composite action that internally uses an unpinned action tag.
 - Add explicit job timeouts to Pages and release workflows.
 - Document the repository-control baseline in `docs/CI.md`.
 
@@ -31,6 +33,7 @@ bounded Pages and release jobs.
 ## Expected file boundary
 
 - `.plans/P6-M009-repository-governance-hardening.plan.md`, `.plans/ACTIVE`
+- `.github/actions/upload-pages-artifact/action.yml`
 - `.github/workflows/ci.yml`, `.github/workflows/pages.yml`, `.github/workflows/release.yml`
 - `docs/CI.md`
 - `PROJECT_STATE.md`, `docs/MILESTONES.md`, `CHANGELOG.md`
@@ -72,10 +75,22 @@ GitHub repository settings are an accompanying external boundary:
 
 ## Completion record
 
-Implementation commit: `992dda9c0f1f505e1af3146f9e59fc98984e3656`
-CI run: `41263057814` (`AgentForge CI`, exact implementation SHA)
-Pages: `41263057670` (`AgentForge Pages`, exact implementation SHA)
-Completed: 2026-10-31
-Notes: Secret scanning with push protection, Dependabot security updates, and action SHA-pinning
-are enabled on the canonical repository. `main` protection is applied after this closure commit's
-exact-head validation so it cannot block the governed migration.
+Implementation commit: pending remediation
+CI run: `41263057814` (`AgentForge CI`, exact pre-remediation implementation SHA)
+Pages: pending
+Completed: pending
+Notes: GitHub's SHA-pinning enforcement rejects the upstream
+`actions/upload-pages-artifact@v3` because its own `action.yml` invokes mutable
+`actions/upload-artifact@v4`. The remediation vendors only that small composite action locally and
+pins its nested upload action, preserving both the Pages artifact contract and the enforcement.
+
+## Remediation amendment: Pages artifact action SHA compatibility
+
+The original implementation correctly pinned every workflow-level action and enabled GitHub's
+repository-wide SHA policy. Pages then failed before its first step because the upstream
+`actions/upload-pages-artifact@v3` composite action contains an unpinned internal dependency.
+
+The implementation adds `.github/actions/upload-pages-artifact/action.yml`, a local copy of the
+upstream v3 composite action with the sole behavioral change of pinning
+`actions/upload-artifact` to its v4 commit SHA. `pages.yml` calls this local action. This is
+necessary to meet the original acceptance criteria without weakening the repository setting.
