@@ -21,6 +21,17 @@ is `.plans/P6-M008-forge-doctor-agents.plan.md`, and ADR-0062 records the static
 no-provider-detection boundary. `v0.4.0` is the latest release, and every completed milestone is
 tagged `milestone/<ID>`.
 
+## P6-M009 completion evidence
+
+- Approved plan: `.plans/P6-M009-repository-governance-hardening.plan.md`.
+- Implementation commit `992dda9`; exact-head CI `41263057814` is green on all seven jobs, and
+  Pages `41263057670` is green on both jobs.
+- GitHub protects `main` with pull requests, current-base required checks, a required review,
+  conversation resolution, linear history, and disabled force pushes/deletion. Secret scanning
+  with push protection, Dependabot security updates, and Actions SHA pinning are enabled.
+- All third-party workflow actions use immutable full-length SHAs with readable release comments.
+  Pages and release jobs have explicit timeouts.
+
 ## P6-M008 completion evidence
 
 - Approved plan: `.plans/P6-M008-forge-doctor-agents.plan.md`; ADR-0062 records the

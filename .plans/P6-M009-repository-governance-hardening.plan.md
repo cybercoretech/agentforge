@@ -1,6 +1,6 @@
 # Plan: P6-M009 — Repository governance hardening
 
-Status: Approved
+Status: Complete
 Milestone: P6-M009
 Created: 2026-10-31
 
@@ -72,8 +72,10 @@ GitHub repository settings are an accompanying external boundary:
 
 ## Completion record
 
-Implementation commit: pending
-CI run: pending
-Pages: pending
-Completed: pending
-Notes: pending
+Implementation commit: `992dda9c0f1f505e1af3146f9e59fc98984e3656`
+CI run: `41263057814` (`AgentForge CI`, exact implementation SHA)
+Pages: `41263057670` (`AgentForge Pages`, exact implementation SHA)
+Completed: 2026-10-31
+Notes: Secret scanning with push protection, Dependabot security updates, and action SHA-pinning
+are enabled on the canonical repository. `main` protection is applied after this closure commit's
+exact-head validation so it cannot block the governed migration.
