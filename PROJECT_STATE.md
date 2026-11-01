@@ -16,9 +16,11 @@ price of being first-party.
 
 ## Active milestone
 
-No milestone is active. P6-M009 — repository governance hardening — is complete. Its remediation
-keeps GitHub's SHA-pinning enforcement while making the Pages artifact action compatible with that
-policy. P6-M008 — provider-neutral `forge doctor --agents` — is complete; its plan is
+P6-M010 — Gemini, GitHub Copilot, and Cursor Agent bridges — is approved and awaiting
+implementation. Its plan is `.plans/P6-M010-selected-agent-bridges.plan.md`. P6-M009 —
+repository governance hardening — is complete; its remediation keeps GitHub's SHA-pinning
+enforcement while making the Pages artifact action compatible with that policy. P6-M008 —
+provider-neutral `forge doctor --agents` — is complete; its plan is
 `.plans/P6-M008-forge-doctor-agents.plan.md`, and ADR-0062 records the static, no-execution,
 no-provider-detection boundary. `v0.4.0` is the latest release, and every completed milestone is
 tagged `milestone/<ID>`.
