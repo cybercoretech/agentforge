@@ -3,7 +3,12 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+// macOS clocks tick in microseconds, so the nanosecond stamp alone can repeat
+// across parallel tests; the counter keeps every root unique.
+static TEMPORARY_ROOT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn agent_profile_commands_are_deterministic_and_non_mutating() {
@@ -229,8 +234,9 @@ fn temporary_root() -> PathBuf {
         .expect("clock")
         .as_nanos();
     let root = std::env::temp_dir().join(format!(
-        "agentforge-cli-agent-profile-{}-{suffix}",
-        std::process::id()
+        "agentforge-cli-agent-profile-{}-{suffix}-{}",
+        std::process::id(),
+        TEMPORARY_ROOT_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
     fs::create_dir(&root).expect("temporary root");
     root
