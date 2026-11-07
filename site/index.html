@@ -7,7 +7,81 @@
     <meta name="theme-color" content="#08111f" />
     <title>AgentForge — Build with agents. Keep the evidence.</title>
     <link rel="stylesheet" href="styles.css" />
-  </head>
+    <link rel="stylesheet" href="https://cybercoretech.github.io/kit/chooser.css">
+  <style>
+    cybercore-theme-chooser{--ccx-bg:#0b1b2c;--ccx-fg:var(--text);--ccx-line:var(--line);--ccx-accent:var(--amber);--ccx-focus:var(--cyan);--ccx-field:var(--ink);--ccx-muted:var(--muted);--ccx-button-bg:transparent;--ccx-button-border:var(--line);--ccx-radius:999px;--ccx-button-width:auto;--ccx-height:2.25rem;--ccx-glow:.5;}
+  </style>
+  <script>window.SITE = Object.assign(window.SITE || {}, {"siteLabel": "AgentForge", "themeVars": {"bg": "--ink", "white": "--text", "muted": "--muted", "cyan": "--cyan", "orange": "--amber", "acid_green": "--green", "purple": "--blue"}});</script>
+  <script type="module" src="https://cybercoretech.github.io/kit/chooser.js"></script>
+  <style id="cc-mobile-first">
+/* Mobile floor (phones + tablets): readable text and finger-sized targets.
+   Generated per range from what renders under 11px / 24px; desktop untouched. */
+@media (max-width: 600px) {
+  p.eyebrow,
+  p.status-pill,
+  div.rail-caption,
+  span.rail-node > b,
+  section.proof-strip > span,
+  span.step-tag,
+  ul.signal-list > li,
+  h3.updates-subhead,
+  div.terminal-top > b,
+  footer.site-footer > span { font-size: 11px !important; }
+}
+@media (min-width: 601px) and (max-width: 860px) {
+  p.eyebrow,
+  p.status-pill,
+  div.rail-caption,
+  span.rail-node > b,
+  section.proof-strip > span,
+  span.step-tag,
+  ul.signal-list > li,
+  h3.updates-subhead,
+  div.terminal-top > b,
+  footer.site-footer > span { font-size: 11px !important; }
+}
+@media (min-width: 861px) and (max-width: 1024px) {
+  p.brand-note,
+  p.eyebrow,
+  p.status-pill,
+  div.rail-caption,
+  span.rail-node > b,
+  section.proof-strip > span,
+  span.step-tag,
+  ul.signal-list > li,
+  h3.updates-subhead,
+  div.terminal-top > b,
+  footer.site-footer > span { font-size: 11px !important; }
+}
+@media (pointer: coarse) {
+  a.update-link { min-height: 24px; min-width: 24px; }
+}
+/* Mobile floor (phones + tablets): readable text and finger-sized targets.
+   Generated per range from what renders under 11px / 24px; desktop untouched. */
+@media (max-width: 600px) {
+  div.terminal-card > pre > code { font-size: 11px !important; }
+}
+/* Layout fixes: phones and tablets only; laptops and desktops untouched. */
+@media (max-width: 1024px) {
+  /* Mobile first: nothing may make the page wider than the screen.
+     Grid/flex columns may shrink below their widest line; code scrolls in place. */
+  pre { max-width: 100%; overflow-x: auto; }
+  img, video { max-width: 100%; height: auto; }
+  div.hero-visual > * { min-width: 0; }
+  /* Long paths and URLs in inline code may break anywhere instead of widening the page. */
+  :not(pre) > code { overflow-wrap: anywhere; }
+  /* Phones and tablets: the hero captions hang off the right edge; pin them inside. */
+  @media (max-width: 1100px) { .rail-caption-top, .rail-caption-bottom { right: 0; } }
+}
+/* All widths: only clips what lies beyond the edge of the screen. */
+/* Decorative layers (glows, grids, noise) run past the edge of the screen.
+   The body contains and clips them (the root clip stops the body handing its
+   overflow to the window), so phones keep a true device-width layout instead
+   of zooming the whole page out. Nothing inside the screen changes. */
+html { overflow-x: clip; }
+body { position: relative; overflow-x: clip; }
+  </style>
+</head>
   <body>
     <a class="skip-link" href="#main-content">Skip to content</a>
 
@@ -24,6 +98,7 @@
         <a href="https://github.com/cybercoretech/agentforge/tree/main/docs">Docs</a>
         <a href="https://github.com/cybercoretech/agentforge">GitHub <span aria-hidden="true">↗</span></a>
       <a data-cybercore-master-docs href="https://cybercoretech.github.io/cybercore/docs.html" style="color:#22e6ff;border:1px solid #263454;border-radius:999px;padding:7px 12px;text-decoration:none;font:600 .7rem ui-monospace,monospace;letter-spacing:.08em;white-space:nowrap">MASTER DOCS ↗</a></nav>
+      <cybercore-theme-chooser compact match=".site-nav a:not(.active)"></cybercore-theme-chooser>
     </header>
 
     <main id="main-content">
